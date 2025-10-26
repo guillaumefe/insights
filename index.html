@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>Module d'analyse</title>
+<title>!nsights</title>
 <meta name="color-scheme" content="light dark">
 
 <!-- ZIP AES (7-Zip/WinZip) -->
@@ -287,7 +287,7 @@ label.invalid { border: 0 !important; box-shadow: none !important; }
 }
 
 /* ======================================================================
-   Liste d’analyses
+   Liste de process en cours
    ====================================================================== */
 .list { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow: auto; }
 .item {
@@ -1090,7 +1090,7 @@ body.preview-open #progressInfo { display: none !important; }
 
       <!-- Actions header (à droite du titre) -->
       <div class="top-actions" role="toolbar" aria-label="Actions générales">
-        <button class="btn ghost sm" id="bundleBtn" title="Exporter / importer toutes les analyses" aria-haspopup="menu" aria-expanded="false">⇆ Import/Export</button>
+        <button class="btn ghost sm" id="bundleBtn" title="Exporter / importer tous les projets en cours" aria-haspopup="menu" aria-expanded="false">⇆ Import/Export</button>
         <button class="btn ghost sm" id="unlockBtn"  title="Déverrouiller l’application" style="display:none;">🔓 Déverrouiller</button>
         <button class="btn ghost sm" id="changePwdBtn" title="Changer le mot de passe">🔒 Changer le mot de passe</button>
 
@@ -1110,7 +1110,7 @@ body.preview-open #progressInfo { display: none !important; }
 <main class="wrap grid" id="app">
   <!-- Panneau gauche -->
   <section class="card col-left" id="leftPane" aria-labelledby="left-title" role="region">
-    <h2 id="left-title">Nouvelle analyse</h2>
+    <h2 id="left-title">Nouveau projet</h2>
     <div class="row">
       <input id="newTitle" type="text" placeholder="Titre" aria-label="Titre">
       <input id="newDate" type="date" aria-label="Date">
@@ -1146,14 +1146,14 @@ body.preview-open #progressInfo { display: none !important; }
       <code style="padding:1px 4px; border-radius:4px; background:rgba(0,0,0,0.03); font-size:0.78rem;">"mot clé"</code>
     </p>
 
-      <input id="searchBox" type="text" placeholder="Filtrer la liste des analyses par mot clé (nom d'une application, nom d'un périmètre, nom d'un fichier, etc.)." aria-describedby="searchInfo" aria-label="Rechercher">
+      <input id="searchBox" type="text" placeholder="Filtrer la liste des projets par mot clé (nom d'une application, nom d'un projet, nom d'un fichier, etc.)." aria-describedby="searchInfo" aria-label="Rechercher">
 
     </section>
 
     <div class="divider"></div>
 
-    <h2>analyses</h2>
-    <div class="list" id="analyseList" aria-label="Liste des analyses" role="list"></div>
+    <h2>projets</h2>
+    <div class="list" id="projectList" aria-label="Liste des projets" role="list"></div>
   </section>
 
   <!-- Séparateur draggable -->
@@ -1168,9 +1168,9 @@ body.preview-open #progressInfo { display: none !important; }
   <!-- Panneau droit -->
   <section class="card col-detail" id="rightPane" aria-labelledby="form-title" role="region">
     <div class="row" id="detailToolbar" style="justify-content:space-between;align-items:center">
-      <h2 id="form-title">Fiche d'analyse</h2>
+      <h2 id="form-title">Projet</h2>
       <div class="row" role="toolbar" aria-label="Actions fiche">
-        <button class="btn ghost" id="backBtn" title="Revenir à la liste">← Fermer l'analyse</button>
+        <button class="btn ghost" id="backBtn" title="Revenir à la liste">← Fermer le projet</button>
         <button class="btn" id="previewBtn" title="Prévisualiser l'export" aria-controls="previewWrap">Prévisualiser</button>
         <button class="btn ghost" id="toggleMissingBtn" type="button" title="Afficher uniquement les champs manquants" aria-pressed="false" aria-controls="formHost">
           <span class="lbl">🧩 Filtre inactif</span>
@@ -1178,7 +1178,7 @@ body.preview-open #progressInfo { display: none !important; }
         <button class="btn" id="exportBtn" title="Exporter en .odt">Exporter .ODT</button>
         <!-- Optionnel si tu branches l'export ZIP de l'aperçu -->
         <button class="btn ghost" id="exportZipBtn" title="Exporter un ZIP (aperçu HTML + JSON)" aria-label="Exporter ZIP">Exporter ZIP</button>
-        <button class="btn danger" id="deleteBtn" title="Supprimer l'analyse">Supprimer</button>
+        <button class="btn danger" id="deleteBtn" title="Supprimer le projet">Supprimer</button>
       </div>
     </div>
 
@@ -1198,7 +1198,7 @@ body.preview-open #progressInfo { display: none !important; }
 </main>
 
 <template id="itemTmpl">
-  <div class="item" role="button" tabindex="0" aria-label="Ouvrir l'analyse">
+  <div class="item" role="button" tabindex="0" aria-label="Ouvrir le projet">
     <div class="meta">
       <div class="title"></div>
       <div class="sub"></div>
@@ -1487,7 +1487,7 @@ if (App.compat.noSubtle) {
 /* =============== Stockage : fallback localStorage / IndexedDB =============== */
 (() => {
   const DB_VERSION = 8;
-  const DB_NAME = 'analysesDB';
+  const DB_NAME = 'projetsDB';
   App.storage = App.storage || {};
   App.storage.DB_VERSION = DB_VERSION;
 
@@ -1495,12 +1495,12 @@ if (App.compat.noSubtle) {
   if (App.compat.noIDB) {
     console.warn('[compat] IndexedDB indisponible → fallback localStorage (non transactionnel).');
 
-    const LS_KEY = 'analyses_local_store_v1';
+    const LS_KEY = 'projets_local_store_v1';
     const safeParse = (s) => { try { return JSON.parse(s); } catch { return null; } };
-    const snap = () => safeParse(localStorage.getItem(LS_KEY)) || { analyses: [], ui: {} };
+    const snap = () => safeParse(localStorage.getItem(LS_KEY)) || { projets: [], ui: {} };
     const save = (obj) => { try { localStorage.setItem(LS_KEY, JSON.stringify(obj)); } catch (e) { console.error('localStorage save', e); } };
 
-    let _db = { analyses: [], ui: {} };
+    let _db = { projets: [], ui: {} };
     const ensure = () => { _db = snap(); };
 
     const tx = (name, _mode = 'readonly') => {
@@ -1508,13 +1508,13 @@ if (App.compat.noSubtle) {
       return {
         put(v) { return { onsuccess: null, onerror: null, _exec() {
           try {
-            if (name === 'analyses') {
+            if (name === 'projets') {
               if (v && v.id != null) {
-                const i = _db.analyses.findIndex(x => x.id === v.id);
-                if (i >= 0) _db.analyses[i] = v; else _db.analyses.push(v);
+                const i = _db.projets.findIndex(x => x.id === v.id);
+                if (i >= 0) _db.projets[i] = v; else _db.projets.push(v);
               } else {
-                v.id = (_db.analyses.reduce((m, x) => Math.max(m, x.id || 0), 0) + 1);
-                _db.analyses.push(v);
+                v.id = (_db.projets.reduce((m, x) => Math.max(m, x.id || 0), 0) + 1);
+                _db.projets.push(v);
               }
             } else if (name === 'ui') {
               _db.ui[v.id] = v;
@@ -1526,20 +1526,20 @@ if (App.compat.noSubtle) {
         get(id) { return { onsuccess: null, onerror: null, _exec() {
           try {
             let res = null;
-            if (name === 'analyses') res = _db.analyses.find(x => x.id === id) || null;
+            if (name === 'projets') res = _db.projets.find(x => x.id === id) || null;
             else if (name === 'ui') res = _db.ui[id] || null;
             this.onsuccess && this.onsuccess({ target: { result: res } });
           } catch (e) { this.onerror && this.onerror(e); }
         }};},
         getAll() { return { onsuccess: null, onerror: null, _exec() {
           try {
-            const res = (name === 'analyses') ? _db.analyses.slice() : Object.values(_db.ui || {});
+            const res = (name === 'projets') ? _db.projets.slice() : Object.values(_db.ui || {});
             this.onsuccess && this.onsuccess({ target: { result: res } });
           } catch (e) { this.onerror && this.onerror(e); }
         }};},
         delete(id) { return { onsuccess: null, onerror: null, _exec() {
           try {
-            if (name === 'analyses') _db.analyses = _db.analyses.filter(x => x.id !== id);
+            if (name === 'projets') _db.projets = _db.projets.filter(x => x.id !== id);
             else if (name === 'ui') delete _db.ui[id];
             save(_db);
             this.onsuccess && this.onsuccess({ target: { result: true } });
@@ -1547,7 +1547,7 @@ if (App.compat.noSubtle) {
         }};},
         clear() { return { onsuccess: null, onerror: null, _exec() {
           try {
-            if (name === 'analyses') _db.analyses = [];
+            if (name === 'projets') _db.projets = [];
             else if (name === 'ui') _db.ui = {};
             save(_db);
             this.onsuccess && this.onsuccess({ target: { result: true } });
@@ -1581,12 +1581,12 @@ if (App.compat.noSubtle) {
 
       req.onupgradeneeded = (e) => {
         const d = e.target.result;
-        if (!d.objectStoreNames.contains('analyses')) {
-          const st = d.createObjectStore('analyses', { keyPath: 'id', autoIncrement: true });
+        if (!d.objectStoreNames.contains('projets')) {
+          const st = d.createObjectStore('projets', { keyPath: 'id', autoIncrement: true });
           st.createIndex('by_created', 'created');
         }
         if (!d.objectStoreNames.contains('ui')) d.createObjectStore('ui', { keyPath: 'id' });
-        if (!d.objectStoreNames.contains('fsHandles')) d.createObjectStore('fsHandles', { keyPath: 'analyseId' });
+        if (!d.objectStoreNames.contains('fsHandles')) d.createObjectStore('fsHandles', { keyPath: 'projectId' });
       };
 
       req.onsuccess = () => { db = req.result; resolve(db); };
@@ -1793,9 +1793,9 @@ if (App.compat.noSubtle) {
   };
 
   // -------- File System Access handles --------
-  async function setFsHandle(analyseId, handle) { return putRaw('fsHandles', { analyseId, handle }); }
-  async function getFsHandle(analyseId) { const row = await getRaw('fsHandles', analyseId); return row?.handle ?? null; }
-  async function clearFsHandle(analyseId) { try { await App.storage.del('fsHandles', analyseId); } catch {} }
+  async function setFsHandle(projectId, handle) { return putRaw('fsHandles', { projectId, handle }); }
+  async function getFsHandle(projectId) { const row = await getRaw('fsHandles', projectId); return row?.handle ?? null; }
+  async function clearFsHandle(projectId) { try { await App.storage.del('fsHandles', projectId); } catch {} }
 
   // -------- Stockage chiffré --------
   function isUnlocked() {
@@ -1808,12 +1808,12 @@ if (App.compat.noSubtle) {
     const envelope = await aesEncryptJson(currentKey, payload);
     const rec = { _enc: envelope };
     if (id != null) rec.id = id;
-    return putRaw('analyses', rec);
+    return putRaw('projets', rec);
   }
 
   async function getEncryptedAnalyse(id) {
     if (!isUnlocked()) return null;
-    const row = await getRaw('analyses', id);
+    const row = await getRaw('projets', id);
     if (!row) return null;
     try {
       const dec = await aesDecryptJson(currentKey, row._enc);
@@ -1823,14 +1823,14 @@ if (App.compat.noSubtle) {
       return obj;
     } catch (e) {
       console.error('[decrypt item]', e);
-      alert('Impossible d’ouvrir cette analyse : mot de passe invalide ou données corrompues.');
+      alert('Impossible d’ouvrir ce projet : mot de passe invalide ou données corrompues.');
       return null;
     }
   }
 
   async function allEncryptedAnalyses() {
     if (!isUnlocked()) return [];
-    const rows = await allRaw('analyses');
+    const rows = await allRaw('projets');
     const out = [];
     for (const r of rows) {
       try { out.push({ id: r.id, ...(await aesDecryptJson(currentKey, r._enc)) }); }
@@ -1842,13 +1842,13 @@ if (App.compat.noSubtle) {
   async function hardResetVault() {
     if (!confirm(
       "⚠️ Réinitialisation totale.\n\n" +
-      "• Toutes les analyses chiffrées seront supprimées.\n" +
+      "• Toutes les projets chiffrées seront supprimées.\n" +
       "• Le sel/paramètres KDF seront réinitialisés.\n" +
       "• Cette opération est irréversible.\n\n" +
       "Souhaitez-vous continuer ?"
     )) return;
 
-    try { await clearStore('analyses'); } catch(_) {}
+    try { await clearStore('projets'); } catch(_) {}
     try { await clearStore('ui'); } catch(_) {}
     try { await clearStore('fsHandles'); } catch(_) {}
 
@@ -1870,13 +1870,13 @@ if (App.compat.noSubtle) {
 
     try { await migrateOldSentinel(); } catch {}
 
-    const rows = await allRaw('analyses');
+    const rows = await allRaw('projets');
     let changed = false;
     for (const r of rows) {
       if (!r._enc) {
         const { id, ...payload } = r;
         const envelope = await aesEncryptJson(currentKey, payload);
-        await putRaw('analyses', { id, _enc: envelope });
+        await putRaw('projets', { id, _enc: envelope });
         changed = true;
       }
     }
@@ -1888,10 +1888,10 @@ if (App.compat.noSubtle) {
 
   // -------- Export / Import bundle --------
   async function exportEncryptedBundle() {
-    const rows = await allRaw('analyses');
+    const rows = await allRaw('projets');
 
     const bundle = {
-      format: 'analyses-bundle',
+      format: 'projets-bundle',
       version: (App.storage && 'DB_VERSION' in App.storage) ? App.storage.DB_VERSION : null,
       exportedAt: Date.now(),
       kdfSalt: localStorage.getItem('kdfSalt') || null,
@@ -1900,7 +1900,7 @@ if (App.compat.noSubtle) {
     };
 
     const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
-    const fileName = App.helpers.makeTimestampedFilename('analyses_bundle', 'bundle.json');
+    const fileName = App.helpers.makeTimestampedFilename('projets_bundle', 'bundle.json');
 
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -1914,11 +1914,11 @@ if (App.compat.noSubtle) {
   }
 
 async function importEncryptedBundleFromFile(file) {
-  if (!confirm('Importer ce bundle et remplacer toutes les analyses existantes ?')) return;
+  if (!confirm('Importer ce bundle et remplacer toutes les projets existantes ?')) return;
   try {
     const text = await file.text();
     const bundle = JSON.parse(text);
-    if (bundle?.format !== 'analyses-bundle' || !Array.isArray(bundle.rows)) {
+    if (bundle?.format !== 'projets-bundle' || !Array.isArray(bundle.rows)) {
       alert('Fichier de bundle invalide.');
       return;
     }
@@ -1928,9 +1928,9 @@ async function importEncryptedBundleFromFile(file) {
     if (bundle.pbkdf2Iters) localStorage.setItem('pbkdf2Iters', bundle.pbkdf2Iters);
 
     // remplace les données
-    await clearStore('analyses');
+    await clearStore('projets');
     for (const row of bundle.rows) {
-      if (row && row._enc && row.id != null) await putRaw('analyses', row);
+      if (row && row._enc && row.id != null) await putRaw('projets', row);
     }
 
     // supprime tout sentinel (sera re-créé au prochain déverrouillage)
@@ -1995,7 +1995,7 @@ async function importEncryptedBundleFromFile(file) {
     }
 
     // déchiffrage complet avec l’ancienne clé
-    const rows = await allRaw('analyses');
+    const rows = await allRaw('projets');
     const oldKey = await deriveKeyForPasswordNow(current);
     const plain = [];
     let failed = 0;
@@ -2017,7 +2017,7 @@ async function importEncryptedBundleFromFile(file) {
     // ré-encryptage
     for (const { id, payload } of plain) {
       const envelope = await aesEncryptJson(newKey, payload);
-      await putRaw('analyses', { id, _enc: envelope });
+      await putRaw('projets', { id, _enc: envelope });
     }
 
     // nouvelle clé courante + sentinel écrasé
@@ -2082,7 +2082,7 @@ async function importEncryptedBundleFromFile(file) {
     }
 
     try {
-      const rows = await allRaw('analyses');
+      const rows = await allRaw('projets');
       if (Array.isArray(rows) && rows.length > 0) {
         await aesDecryptJson(key, rows[0]._enc);
         return true;
@@ -2368,25 +2368,25 @@ function setTemplate(newTemplate){
     return [explicit, dash, underscore].filter(Boolean);
   }
 
-  function ensureSectionKey(analyse, section, sidx){
+  function ensureSectionKey(project, section, sidx){
     const primary = sectionKeyOf(section, sidx);
     const cands = legacySectionKeyCandidates(section, sidx);
-    if (analyse && analyse.data){
+    if (project && project.data){
       for (const k of cands){
-        if (k && k !== primary && analyse.data[k] !== undefined){
-          analyse.data[primary] = analyse.data[k];
-          delete analyse.data[k];
+        if (k && k !== primary && project.data[k] !== undefined){
+          project.data[primary] = project.data[k];
+          delete project.data[k];
         }
       }
     }
     return primary;
   }
 
-  function readSectionArray(analyse, section, sidx){
+  function readSectionArray(project, section, sidx){
     const primary = sectionKeyOf(section, sidx);
     const cands = legacySectionKeyCandidates(section, sidx);
     for (const k of [primary, ...cands]){
-      const v = analyse?.data?.[k];
+      const v = project?.data?.[k];
       if (Array.isArray(v)) return v;
     }
     return [];
@@ -2405,8 +2405,8 @@ function setTemplate(newTemplate){
     obj.data[name + '__raw'] = raw;
   }
 
-  function getRawHeader(analyse, key) {
-    return (analyse._raw && analyse._raw[key]) || '';
+  function getRawHeader(project, key) {
+    return (project._raw && project._raw[key]) || '';
   }
     function getCurrentAnalyseSafe() {
       const st = App.state || (App.state = {});
@@ -2419,10 +2419,10 @@ function setTemplate(newTemplate){
     
       return a;
     }
-    function setRawHeader(analyse, key, value) {
+    function setRawHeader(project, key, value) {
       // accepte soit l’objet direct, soit rien (on lira depuis App.state)
-      const a = (analyse && typeof analyse === 'object') ? analyse : getCurrentAnalyseSafe();
-      if (!a) { console.warn('[setRawHeader] analyse manquante'); return; }
+      const a = (project && typeof project === 'object') ? project : getCurrentAnalyseSafe();
+      if (!a) { console.warn('[setRawHeader] project manquante'); return; }
     
       if (!a._raw || typeof a._raw !== 'object') a._raw = {};
       a._raw[key] = value;
@@ -2530,7 +2530,7 @@ function renderPager(host, opts = {}){
       try { App.uiList?.showToast?.('🎉 Félicitations, en route vers la commission d\'homologation !', 6000, 'success'); }
       catch(_) { alert('Félicitations, en route vers la commission d\'homologation'); }
       App.uiList?.closeDetail?.();
-      const list = document.getElementById('analyseList');
+      const list = document.getElementById('projectList');
       list?.querySelectorAll('.item.selected')?.forEach(n => n.classList.remove('selected'));
       App.uiList?.updateSearchVisibility?.();
     };
@@ -2601,7 +2601,7 @@ App.model = {
   };
 App.util.getCA = function getCA(){ return App.state?.currentAnalyse || null; };
 
-// --- Rafraîchissement d'UI "safe" (ne fait rien si l'analyse est fermée)
+// --- Rafraîchissement d'UI "safe" (ne fait rien si le projet est fermée)
 App.util.safeUIRefresh = function safeUIRefresh(){
   const CA = App.util.getCA();
   if (!CA) return;
@@ -3031,11 +3031,11 @@ App.util.safeUIRefresh = function safeUIRefresh(){
   function renderEmptyState_hasItems(){
     return `
       <div class="inner">
-        <h3>Aucune analyse en cours</h3>
-        <p>Sélectionnez une analyse dans la colonne de gauche pour afficher son contenu.</p>
+        <h3>Aucun projet en cours</h3>
+        <p>Sélectionnez un projet dans la colonne de gauche pour afficher son contenu.</p>
         <div class="actions">
           <button class="btn ghost" type="button" id="focusSearchBtn">🔎 Rechercher</button>
-          <button class="btn primary" type="button" id="focusCreateBtn">+ Nouvelle analyse</button>
+          <button class="btn primary" type="button" id="focusCreateBtn">+ Nouveau projet</button>
         </div>
       </div>
     `;
@@ -3044,13 +3044,13 @@ App.util.safeUIRefresh = function safeUIRefresh(){
   function renderEmptyState_noItems(){
     return `
       <div class="inner">
-        <h3>Créez votre première analyse</h3>
+        <h3>Créez votre premier projet</h3>
         <p>Renseignez un titre puis cliquez sur <strong>Créer</strong>. Vous pourrez ensuite compléter la fiche.</p>
         <ol class="steps">
-          <li>Saisissez le <strong>Nom du périmètre</strong> (champ en haut à gauche).</li>
+          <li>Saisissez le <strong>Nom du projet</strong> (champ en haut à gauche).</li>
           <li>Vérifiez la <strong>Date</strong> si besoin.</li>
-          <li>Cliquez sur <strong>Créer</strong> pour ajouter l'analyse à la liste.</li>
-          <li>Cliquez sur l'analyse créée pour ouvrir sa fiche détaillée.</li>
+          <li>Cliquez sur <strong>Créer</strong> pour ajouter le projet à la liste.</li>
+          <li>Cliquez sur le projet créée pour ouvrir sa fiche détaillée.</li>
         </ol>
         <div class="actions">
           <button class="btn primary" type="button" id="focusTitleBtn">Commencer</button>
@@ -3081,12 +3081,12 @@ App.util.safeUIRefresh = function safeUIRefresh(){
 
     ph.querySelector('#focusCreateBtn')?.addEventListener('click', ()=>{
       highlightField('#newTitle');
-      showToast("Entrez le nom du périmètre dans le champ dédié, puis cliquez sur Créer", 4000, 'success');
+      showToast("Entrez le nom du projet dans le champ dédié, puis cliquez sur Créer", 4000, 'success');
     });
 
     ph.querySelector('#focusTitleBtn')?.addEventListener('click', ()=>{
       highlightField('#newTitle');
-      showToast("Entrez le nom du périmètre dans le champ dédié, puis cliquez sur Créer", 4000, 'success');
+      showToast("Entrez le nom du projet dans le champ dédié, puis cliquez sur Créer", 4000, 'success');
     });
   }
 
@@ -3114,7 +3114,7 @@ App.util.safeUIRefresh = function safeUIRefresh(){
   }
 
   function renderList(forceFocus = false){
-    const list = document.getElementById('analyseList');
+    const list = document.getElementById('projectList');
     if (!list) return;
     list.innerHTML='';
 
@@ -3181,16 +3181,16 @@ matched.forEach(enq=>{
   // bouton supprimer
   const actions = document.createElement('div'); actions.className='actions';
   const delBtn  = document.createElement('button');
-  delBtn.className='icon-btn'; delBtn.type='button'; delBtn.title='Supprimer cette analyse';
+  delBtn.className='icon-btn'; delBtn.type='button'; delBtn.title='Supprimer ce projet';
   delBtn.textContent='🗑️';
-  delBtn.setAttribute('aria-label','Supprimer cette analyse');
+  delBtn.setAttribute('aria-label','Supprimer ce projet');
   delBtn.addEventListener('click', async (ev)=>{
     ev.stopPropagation();
-    const label = enq.title ? `« ${enq.title} »` : 'cette analyse';
+    const label = enq.title ? `« ${enq.title} »` : 'ce projet';
     const confirmFn = App.helpers?.confirm ?? ((msg)=>confirm(msg));
     if(!confirmFn(`Supprimer définitivement ${label} ?`)) return;
     try{
-      await App.storage.del('analyses', enq.id);
+      await App.storage.del('projets', enq.id);
       try { await App.secStore?.clearFsHandle?.(enq.id); } catch(_){}
       if(currentAnalyse && currentAnalyse.id === enq.id){ closeDetail(); }
       await refreshList();
@@ -3420,24 +3420,24 @@ matched.forEach(enq=>{
     return await showDirectoryPicker({mode:'readwrite'});
   }
 
-  async function ensureRefDir(analyse, interactive=true){
-    if (!analyse) throw new Error('Aucune analyse');
+  async function ensureRefDir(project, interactive=true){
+    if (!project) throw new Error('Aucun projet');
     // Mémoire
-    if (analyse.refParent && analyse.refDirName){
+    if (project.refParent && project.refDirName){
       try{
-        return await analyse.refParent.getDirectoryHandle(analyse.refDirName, {create:false});
+        return await project.refParent.getDirectoryHandle(project.refDirName, {create:false});
       }catch(_){} 
     }
 
     // Handle persistant
-    if (analyse.id != null && App.secStore?.getFsHandle){
+    if (project.id != null && App.secStore?.getFsHandle){
       try{
-        const saved = await App.secStore.getFsHandle(analyse.id);
+        const saved = await App.secStore.getFsHandle(project.id);
         if (saved){
-          analyse.refParent = saved;
-          if (analyse.refDirName){
+          project.refParent = saved;
+          if (project.refDirName){
             try{
-              return await analyse.refParent.getDirectoryHandle(analyse.refDirName, {create:false});
+              return await project.refParent.getDirectoryHandle(project.refDirName, {create:false});
             }catch(_){} 
           }
         }
@@ -3449,25 +3449,25 @@ matched.forEach(enq=>{
     if(!fsAvailable()) throw new Error('File System Access API indisponible');
 
     const parent = await pickParentDir();
-    const dirName  = (App.util?.slug?.(analyse.title || 'dossier') || 'dossier');
+    const dirName  = (App.util?.slug?.(project.title || 'dossier') || 'dossier');
     const refDir   = await parent.getDirectoryHandle(dirName, {create:true});
 
-    analyse.refParent  = parent;
-    analyse.refDirName = dirName;
+    project.refParent  = parent;
+    project.refDirName = dirName;
 
-    if (analyse.id != null && App.secStore?.setFsHandle)
-      await App.secStore.setFsHandle(analyse.id, parent);
+    if (project.id != null && App.secStore?.setFsHandle)
+      await App.secStore.setFsHandle(project.id, parent);
 
     if (App.secStore?.putEncryptedAnalyse)
-      await App.secStore.putEncryptedAnalyse(analyse);
+      await App.secStore.putEncryptedAnalyse(project);
 
     return refDir;
   }
 
-  async function saveToRefDir(analyse, file){
+  async function saveToRefDir(project, file){
     if (!file) throw new Error('Aucun fichier');
     // ensureRefDir doit te retourner un FileSystemDirectoryHandle
-    const dir = await ensureRefDir(analyse, true);
+    const dir = await ensureRefDir(project, true);
     
     // Demande (ou vérifie) la permission
     const hasPerm = await (async () => {
@@ -3543,7 +3543,7 @@ async function persistCurrent(){
 /* === Module App.uiExport : popup d’export guidé === */
 App.uiExport = (function() {
 
-    // --- Helper local: buckets courant/ancien pour l'analyse ouverte
+    // --- Helper local: buckets courant/ancien pour le projet ouverte
      function bucketsFromCurrentAnalyse(){
            const norm = (s) => String(s ?? '').trim().normalize('NFKC');
            const a = App?.state?.currentAnalyse;
@@ -3648,7 +3648,7 @@ function renderList() {
   // aucun fichier
   if (!fileRefs || fileRefs.length === 0) {
     const p = document.createElement('p');
-    p.textContent = 'Aucun fichier trouvé pour cette analyse.';
+    p.textContent = 'Aucun fichier trouvé pour ce projet.';
     listWrap.append(p);
     refreshButtons();
     return;
@@ -3914,8 +3914,8 @@ function saveLS(){
 
   // -------- Progression globale
   // Somme de tous les process (compte toutes les occurrences réelles)
-  function computeProgress(analyse){
-    const arr = App.form.computeProgressByProcess(analyse);
+  function computeProgress(project){
+    const arr = App.form.computeProgressByProcess(project);
     const agg = arr.reduce((a, x)=>({ filled:a.filled+x.filled, total:a.total+x.total }), {filled:0,total:0});
     const pct = agg.total ? Math.round((agg.filled*100)/agg.total) : 0;
     return { pct, filled: agg.filled, total: agg.total };
@@ -3923,8 +3923,8 @@ function saveLS(){
 
   // -------- Progression par process (sections simples, répétables, groupes rép., champs rép. imbriqués)
 // -------- Progression par process — version "1 champ = 1 point"
-function computeProgressByProcess(analyse){
-  const A = analyse || App.state?.currentAnalyse || {};
+function computeProgressByProcess(project){
+  const A = project || App.state?.currentAnalyse || {};
   const DATA = A?.data || {};
 
   // helpers du modèle (respecte clés stables + candidats legacy)
@@ -4090,12 +4090,12 @@ function updateCompletionBannerUI(pct=0, filled=0, total=0){
   // -------- Rafraîchissement visuel de la progression (global + par process)
 function refreshProgressUI(){
   try {
-    const analyse = App.state?.currentAnalyse;
-    if (!analyse) return;
+    const project = App.state?.currentAnalyse;
+    if (!project) return;
 
     const perProc = (typeof computeProgressByProcess === 'function'
-      ? computeProgressByProcess(analyse)
-      : (App.form?.computeProgressByProcess?.(analyse) || []));
+      ? computeProgressByProcess(project)
+      : (App.form?.computeProgressByProcess?.(project) || []));
 
     const panels = document.querySelectorAll('.proc-columns .proc-panel');
     panels.forEach((panel, i) => {
@@ -4107,10 +4107,10 @@ function refreshProgressUI(){
       }
     });
 
-    const g = App.form.computeProgress?.(analyse) || { pct:0, filled:0, total:0 };
+    const g = App.form.computeProgress?.(project) || { pct:0, filled:0, total:0 };
     updateCompletionBannerUI(g.pct, g.filled, g.total);
   } catch (e) {
-    // pas d’erreur bruyante si l’analyse a été fermée entre-temps
+    // pas d’erreur bruyante si le projet a été fermé entre-temps
   }
 }
 
@@ -4130,10 +4130,10 @@ function refreshProgressUI(){
 
   // -------- Snapshot des champs manquants (global multi-process)
   let FILTER_SNAPSHOT = null;
-  function buildFilterSnapshot(analyse){
+  function buildFilterSnapshot(project){
     const snap = { header:{}, sections:{} };
 
-    const missH = headerMissing(analyse);
+    const missH = headerMissing(project);
     snap.header.title = missH.includes('title');
     snap.header.date  = missH.includes('date');
 
@@ -4164,7 +4164,7 @@ function refreshProgressUI(){
         S.repeats = {};
         eachField(section, (f)=>{
           if (f.repeatable){
-            const arr = Array.isArray(analyse.data?.[f.name]) ? analyse.data[f.name] : [];
+            const arr = Array.isArray(project.data?.[f.name]) ? project.data[f.name] : [];
             const set = new Set();
             arr.forEach((v,i)=>{
               const val = normMissing(f, v);
@@ -4172,12 +4172,12 @@ function refreshProgressUI(){
             });
             S.repeats[f.name] = set;
           } else {
-            const val = normMissing(f, (analyse.data||{})[f.name]);
+            const val = normMissing(f, (project.data||{})[f.name]);
             if (App.util.fieldIsMissingSimple(f, val)) S.simple.add(f.name);
           }
         });
       } else {
-        const items = Array.isArray(analyse.data?.[key]) ? analyse.data[key] : [];
+        const items = Array.isArray(project.data?.[key]) ? project.data[key] : [];
         S.blocks = {};
         items.forEach((item, i)=>{
           const b = { simple:new Set(), repeats:{} };
@@ -4233,7 +4233,7 @@ function refreshProgressUI(){
   }
 
   // === Rendu d'une SECTION non répétable (entière) – gère aussi les GROUPES ===
-  function renderNonRepeatableSection(section, analyse, secEl){
+  function renderNonRepeatableSection(section, project, secEl){
     let hasContent = false;
 
     const rerender = async () => {
@@ -4241,7 +4241,7 @@ function refreshProgressUI(){
       const parent = secEl.parentNode;
       const fresh = secEl.cloneNode(false);
       parent.replaceChild(fresh, secEl);
-      renderNonRepeatableSection(section, analyse, fresh);
+      renderNonRepeatableSection(section, project, fresh);
       if (App.util?.showMissingOnly) {
         const { pct, filled, total } = computeProgress(App.state.currentAnalyse);
         updateCompletionBannerUI(pct, filled, total);
@@ -4253,7 +4253,7 @@ function refreshProgressUI(){
       // =============== GROUPE =================
       if (entry && entry.group && Array.isArray(entry.fields)) {
         const g = entry.group;
-        const data = (analyse.data ||= {});
+        const data = (project.data ||= {});
 
         // ---------- GROUPE RÉPÉTABLE ----------
         if (g.repeatable) {
@@ -4335,13 +4335,13 @@ function refreshProgressUI(){
           const r = el('div', { class:'kv' });
           const l = el('label', {}, { children:[ sf.label || sf.name ] });
           const cur = (sf.type === 'date')
-            ? (App.util?.getRawForData ? App.util.getRawForData(analyse, sf.name) : (data[sf.name] ?? ''))
+            ? (App.util?.getRawForData ? App.util.getRawForData(project, sf.name) : (data[sf.name] ?? ''))
             : (data[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
 
           const input = renderInputForField(
             sf, cur,
             async (val) => {
-              if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(analyse, sf.name, val);
+              if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(project, sf.name, val);
               else data[sf.name] = val;
               await persist();
               if (App.util?.showMissingOnly) {
@@ -4366,11 +4366,11 @@ function refreshProgressUI(){
       // =============== CHAMP SIMPLE =================
       if (entry?.repeatable) {
         const getArr = () => {
-          const a = Array.isArray(analyse.data?.[entry.name]) ? analyse.data[entry.name] : [];
-          (analyse.data ||= {}); if (!Array.isArray(analyse.data[entry.name])) analyse.data[entry.name] = a;
-          return analyse.data[entry.name];
+          const a = Array.isArray(project.data?.[entry.name]) ? project.data[entry.name] : [];
+          (project.data ||= {}); if (!Array.isArray(project.data[entry.name])) project.data[entry.name] = a;
+          return project.data[entry.name];
         };
-        const setArr = (a) => { analyse.data[entry.name] = a; };
+        const setArr = (a) => { project.data[entry.name] = a; };
 
         const box = el('div', { class:'repeatable-list' });
         const list = el('div', { class:'repeatable-items' });
@@ -4383,7 +4383,7 @@ function refreshProgressUI(){
 
         const renderRow = buildRenderRow({
           field: entry, getArr, setArr,
-          idxToRow: () => analyse.data,
+          idxToRow: () => project.data,
           uidBase: `${section.title || 'sec'}__${entry.name}`
         });
 
@@ -4397,15 +4397,15 @@ function refreshProgressUI(){
       const r = el('div', { class:'kv' });
       const l = el('label', {}, { children:[ entry.label || entry.name ] });
       const cur = (entry.type === 'date')
-        ? (App.util?.getRawForData ? App.util.getRawForData(analyse, entry.name) : (analyse.data?.[entry.name] ?? ''))
-        : (analyse.data?.[entry.name] ?? (entry.type === 'checkbox' ? false : ''));
+        ? (App.util?.getRawForData ? App.util.getRawForData(project, entry.name) : (project.data?.[entry.name] ?? ''))
+        : (project.data?.[entry.name] ?? (entry.type === 'checkbox' ? false : ''));
 
       const input = renderInputForField(
         entry, cur,
         async (val) => {
-          (analyse.data ||= {});
-          if (entry.type === 'date' && App.util?.setRawForData) App.util.setRawForData(analyse, entry.name, val);
-          else analyse.data[entry.name] = val;
+          (project.data ||= {});
+          if (entry.type === 'date' && App.util?.setRawForData) App.util.setRawForData(project, entry.name, val);
+          else project.data[entry.name] = val;
           await persist();
           if (App.util?.showMissingOnly) {
             const { pct, filled, total } = computeProgress(App.state.currentAnalyse);
@@ -4413,7 +4413,7 @@ function refreshProgressUI(){
           }
         },
         null,
-        { row: analyse.data, uid: `${section.title || 'sec'}__${entry.name}` }
+        { row: project.data, uid: `${section.title || 'sec'}__${entry.name}` }
       );
 
       r.append(l, input);
@@ -4427,14 +4427,14 @@ function refreshProgressUI(){
     }
   }
   // === Rendu d'une SECTION répétable (entière) – gère aussi les GROUPES ===
-  function renderRepeatableSection(section, analyse, secEl, sidx){
+  function renderRepeatableSection(section, project, secEl, sidx){
     const key = App?.model?.sectionKeyOf ? App.model.sectionKeyOf(section, sidx) : `section-${sidx+1}`;
     const getItems = () => {
-      const a = Array.isArray(analyse.data?.[key]) ? analyse.data[key] : [];
-      (analyse.data ||= {}); if (!Array.isArray(analyse.data[key])) analyse.data[key] = a;
-      return analyse.data[key];
+      const a = Array.isArray(project.data?.[key]) ? project.data[key] : [];
+      (project.data ||= {}); if (!Array.isArray(project.data[key])) project.data[key] = a;
+      return project.data[key];
     };
-    const setItems = (a) => { analyse.data[key] = a; };
+    const setItems = (a) => { project.data[key] = a; };
 
     const items = getItems();
 
@@ -4700,13 +4700,13 @@ function renderForm(){
     obj[key] = parsed || ''; // vide tant que non valide ⇒ "manquant"
   };
   // 3) En-tête (même principe)
-  App.util.getRawHeader = App.util.getRawHeader || function (analyse, key) {
-    analyse.__rawHeader = analyse.__rawHeader || {};
-    return analyse.__rawHeader[key] ?? '';
+  App.util.getRawHeader = App.util.getRawHeader || function (project, key) {
+    project.__rawHeader = project.__rawHeader || {};
+    return project.__rawHeader[key] ?? '';
   };
-  App.util.setRawHeader = App.util.setRawHeader || function (analyse, key, val) {
-    analyse.__rawHeader = analyse.__rawHeader || {};
-    analyse.__rawHeader[key] = String(val ?? '');
+  App.util.setRawHeader = App.util.setRawHeader || function (project, key, val) {
+    project.__rawHeader = project.__rawHeader || {};
+    project.__rawHeader[key] = String(val ?? '');
   };
 
   // ---- lecture du localStorage au cold start
@@ -4717,7 +4717,7 @@ function renderForm(){
   if (!App.state._bootstrapped) {
     App.state._bootstrapped = true;
 
-    // 1) Restaurer l'analyse courante si possible (uniquement si uiList est prêt)
+    // 1) Restaurer le projet courante si possible (uniquement si uiList est prêt)
     if (LS.currentAnalyseId && App.uiList?.findById) {
       const found = App.uiList.findById(LS.currentAnalyseId);
       if (found) {
@@ -4752,13 +4752,13 @@ function renderForm(){
 
   host.innerHTML = '';
 
-  // ---- si aucune analyse, on reste sur la liste
+  // ---- si aucun projet, on reste sur la liste
   if (!App.state.currentAnalyse) {
     App.uiList?.clearDetail?.();
     return;
   }
 
-  // Sauvegarde immédiate de l'état courant (analyse + UI)
+  // Sauvegarde immédiate de l'état courant (project + UI)
   saveLS();
 
   App.state._explicitAnalyseSelection = true;
@@ -4833,7 +4833,7 @@ function renderForm(){
       id:'hdr_title', type:'text',
       value: App.state.currentAnalyse.title || '',
       placeholder:'Titre',
-      'aria-label':'Nom du périmètre concerné'
+      'aria-label':'Nom du projet concerné'
     });
     inpTitle.addEventListener('input', async (e)=>{
       if (!App.state?.currentAnalyse) return;
@@ -4856,16 +4856,16 @@ function renderForm(){
       inputmode:'numeric',
       placeholder:'YYYY-MM-DD',
       value: rawDate,
-      'aria-label':'Date de l\'analyse'
+      'aria-label':'Date du projet'
     });
     const hint = el('div', { class:'muted', style:'margin-top:2px' }, { children:[''] });
 
     async function syncHeaderDate(val){
-      const analyse = App?.state?.currentAnalyse;
-      if (!analyse) return;
-      if (App.util?.setRawHeader) App.util.setRawHeader(analyse, 'headerDate', val);
+      const project = App?.state?.currentAnalyse;
+      if (!project) return;
+      if (App.util?.setRawHeader) App.util.setRawHeader(project, 'headerDate', val);
       const ok = App.util.parseDateStrict(val);
-      analyse.date = ok || '';
+      project.date = ok || '';
       hint.textContent = ok ? '' : (val ? 'Format attendu : YYYY-MM-DD' : '');
       inpDate.classList.toggle('invalid', !ok && !!val);
       await afterPersist();
@@ -6011,7 +6011,7 @@ if (!isRepeatEntry) {
         if (li) {
           try {
             if (dirHandle) {
-              await App.files.updateIndicator(li, { url: savedName }, { analyse: CA, dirHandle });
+              await App.files.updateIndicator(li, { url: savedName }, { project: CA, dirHandle });
             } else {
               App.files.setStatus(li, '✅', 'Disponible (session, non persisté)');
             }
@@ -6032,7 +6032,7 @@ if (!isRepeatEntry) {
           const f = fileInput.files?.[0];
           if (!f) { alert('Choisissez un fichier.'); return; }
           const CA = App.util.getCA();
-          if (!CA) { alert('Aucune analyse ouverte.'); return; }
+          if (!CA) { alert('Aucun projet ouvert.'); return; }
 
           uploadBtn.disabled = true;
           let savedName = f.name, dirHandle = null;
@@ -6117,20 +6117,20 @@ App.files.setStatus = function setStatus(root, char, title) {
 };
 
 // ————— Gestion des handles de dossier (stockage local) —————
-App.files._key = (analyseId, fileName) => `${analyseId}::${fileName}`;
-App.files._dirMap = new Map(); // clé: analyseId → dirHandle
+App.files._key = (projectId, fileName) => `${projectId}::${fileName}`;
+App.files._dirMap = new Map(); // clé: projectId → dirHandle
 
-App.files.rememberHandle = async function rememberHandle(analyse, fileName, dirHandle) {
-  if (!analyse || !fileName) return;
+App.files.rememberHandle = async function rememberHandle(project, fileName, dirHandle) {
+  if (!project || !fileName) return;
   try {
     await App.storage.put('fsHandles', {
-      id: App.files._key(analyse.id, fileName),
-      analyseId: analyse.id,
+      id: App.files._key(project.id, fileName),
+      projectId: project.id,
       fileName,
       dirHandle: dirHandle || null
     });
     if (!App.files._dirMap) App.files._dirMap = new Map();
-    if (dirHandle) App.files._dirMap.set(analyse.id, dirHandle);
+    if (dirHandle) App.files._dirMap.set(project.id, dirHandle);
   } catch (err) {
     console.warn('[App.files] rememberHandle: échec d’enregistrement', err);
   }
@@ -6143,9 +6143,9 @@ App.files.restoreHandles = async function restoreHandles() {
     if (!Array.isArray(rows)) return;
     App.files._dirMap.clear();
     for (const r of rows) {
-      if (!r?.analyseId || !r?.dirHandle) continue;
-      if (!App.files._dirMap.has(r.analyseId)) {
-        App.files._dirMap.set(r.analyseId, r.dirHandle);
+      if (!r?.projectId || !r?.dirHandle) continue;
+      if (!App.files._dirMap.has(r.projectId)) {
+        App.files._dirMap.set(r.projectId, r.dirHandle);
       }
     }
     console.log('[App.files] handles restaurés:', App.files._dirMap.size);
@@ -6154,8 +6154,8 @@ App.files.restoreHandles = async function restoreHandles() {
   }
 };
 
-App.files.getDirForAnalyse = analyse =>
-  analyse ? App.files._dirMap.get(analyse.id) || null : null;
+App.files.getDirForAnalyse = project =>
+  project ? App.files._dirMap.get(project.id) || null : null;
 
 // ————— Vérification HTTP —————
 App.files.checkHttp = async function checkHttp(url) {
@@ -6201,7 +6201,7 @@ App.files.checkLocalFile = async function checkLocalFile(dirHandle, fileName) {
 // ————— Mise à jour d’un élément (icône + info) —————
 App.files.updateIndicator = async function updateIndicator(root, { url }, ctx = {}) {
   if (!root) return;
-  const analyse = ctx?.analyse || App?.state?.currentAnalyse;
+  const project = ctx?.project || App?.state?.currentAnalyse;
 
   // Aucun fichier
   if (!url) {
@@ -6222,17 +6222,17 @@ App.files.updateIndicator = async function updateIndicator(root, { url }, ctx = 
   }
 
   // Cas local
-  const dir = (ctx && ctx.dirHandle) || App.files.getDirForAnalyse(analyse);
+  const dir = (ctx && ctx.dirHandle) || App.files.getDirForAnalyse(project);
   if (!dir) {
     App.files.setStatus(root, '⚠️', 'Dossier de référence non restauré');
-    App.files._attachAssociateButton?.(root, analyse, String(url));
+    App.files._attachAssociateButton?.(root, project, String(url));
     return;
   }
 
   const perm = await App.files.ensurePermission(dir, 'read');
   if (!perm) {
     App.files.setStatus(root, '⚠️', 'Permission requise sur le dossier');
-    App.files._attachAssociateButton?.(root, analyse, String(url));
+    App.files._attachAssociateButton?.(root, project, String(url));
     return;
   }
 
@@ -6246,18 +6246,18 @@ App.files.updateIndicator = async function updateIndicator(root, { url }, ctx = 
 
 // ————— Scan global de la page —————
 App.files.scanCurrentAnalyse = async function scanCurrentAnalyse() {
-  const analyse = App?.state?.currentAnalyse;
-  if (!analyse) return;
+  const project = App?.state?.currentAnalyse;
+  if (!project) return;
 
   const items = document.querySelectorAll('li[data-file-value]');
   for (const li of items) {
     const url = li.getAttribute('data-file-value') || '';
-    await App.files.updateIndicator(li, { url }, { analyse });
+    await App.files.updateIndicator(li, { url }, { project });
   }
 };
 
 // ————— Bouton “Associer dossier” —————
-App.files._attachAssociateButton = function _attachAssociateButton(root, analyse, fileName) {
+App.files._attachAssociateButton = function _attachAssociateButton(root, project, fileName) {
   if (root.querySelector('.associate-btn')) return;
   if (!window.showDirectoryPicker) return;
 
@@ -6270,8 +6270,8 @@ App.files._attachAssociateButton = function _attachAssociateButton(root, analyse
   btn.addEventListener('click', async () => {
     try {
       const dir = await window.showDirectoryPicker();
-      await App.files.rememberHandle(analyse, fileName, dir);
-      await App.files.updateIndicator(root, { url: fileName }, { analyse });
+      await App.files.rememberHandle(project, fileName, dir);
+      await App.files.updateIndicator(root, { url: fileName }, { project });
       App.uiList?.showToast?.('Dossier associé. Vérification effectuée.', 2200, 'success');
     } catch (_) {}
   });
@@ -6350,15 +6350,15 @@ console.log('[App.files] Module chargé');
   }
 
   // ---------- BUILD PREVIEW HTML ----------
-function buildPreviewHTML(analyse){
+function buildPreviewHTML(project){
   const H = (lvl, txt)=> `<h${lvl}>${htmlEscape(txt)}</h${lvl}>`;
   const P = txt => `<p>${htmlEscape(txt)}</p>`;
 
   const headerDate = (() => {
-    const raw = App?.util?.getRawHeader ? (App.util.getRawHeader(analyse, 'headerDate') || '') : '';
+    const raw = App?.util?.getRawHeader ? (App.util.getRawHeader(project, 'headerDate') || '') : '';
     if (raw) return raw;
-    const ok = App?.util?.parseDateStrict ? App.util.parseDateStrict(analyse?.date) : /^\d{4}-\d{2}-\d{2}$/.test(String(analyse?.date||''));
-    return ok ? analyse.date : '';
+    const ok = App?.util?.parseDateStrict ? App.util.parseDateStrict(project?.date) : /^\d{4}-\d{2}-\d{2}$/.test(String(project?.date||''));
+    return ok ? project.date : '';
   })();
 
 const renderCell = (field, value) => {
@@ -6402,7 +6402,7 @@ const renderCell = (field, value) => {
 
       if (section?.repeatable) {
         const key = App?.model?.sectionKeyOf ? App.model.sectionKeyOf(section, sidx) : `section-${sidx+1}`;
-        const items = Array.isArray(analyse?.data?.[key]) ? analyse.data[key] : [];
+        const items = Array.isArray(project?.data?.[key]) ? project.data[key] : [];
         if (items.length === 0) {
           table += `<tr><th>${htmlEscape(section?.title || 'Bloc')}</th><td>—</td></tr>`;
         } else {
@@ -6442,20 +6442,20 @@ const renderCell = (field, value) => {
           const g = entry.group;
           if (g.repeatable) {
             const KEY = `__grp__${g.name}`;
-            const arr = Array.isArray(analyse?.data?.[KEY]) ? analyse.data[KEY] : [];
+            const arr = Array.isArray(project?.data?.[KEY]) ? project.data[KEY] : [];
             if (arr.length === 0) {
               table += `<tr><th>${htmlEscape(g.label || g.name)}</th><td>—</td></tr>`;
             } else {
               arr.forEach((obj, i) => renderFieldsFlat(obj, entry.fields, `${g.label || g.name} (${i+1})`));
             }
           } else {
-            renderFieldsFlat(analyse?.data || {}, entry.fields, g.label || g.name);
+            renderFieldsFlat(project?.data || {}, entry.fields, g.label || g.name);
           }
           return;
         }
 
         const label = entry?.label || entry?.name || '';
-        const val = entry.type==='date' ? getDateDisplayFromRawContainer(analyse, entry.name) : ((analyse?.data || {})[entry.name] ?? '');
+        const val = entry.type==='date' ? getDateDisplayFromRawContainer(project, entry.name) : ((project?.data || {})[entry.name] ?? '');
         table += `<tr><th>${htmlEscape(label)}</th><td>${renderCell(entry, val)}</td></tr>`;
       });
 
@@ -6467,7 +6467,7 @@ const renderCell = (field, value) => {
 
   // ——— Début HTML ———
   let html = '';
-  html += H(1, `analyse · ${analyse?.title || 'sans-titre'}`);
+  html += H(1, `project · ${project?.title || 'sans-titre'}`);
   html += P(`Date : ${headerDate || '—'}`);
   html += `<hr class="divider">`;
 
@@ -6491,7 +6491,7 @@ const renderCell = (field, value) => {
 
   // ---------- OUVERTURE / FERMETURE APERÇU ----------
   function openPreview(){
-    if (!App?.state?.currentAnalyse) { alert('Aucune analyse ouverte.'); return; }
+    if (!App?.state?.currentAnalyse) { alert('Aucun projet ouvert.'); return; }
     if (App?.util?.showMissingOnly) {
       App.util.showMissingOnly = false;
       App?.util?.updateMissingButton?.();
@@ -6620,9 +6620,9 @@ const renderCell = (field, value) => {
 
 
   // ---------- ODT (OpenDocument Text) ----------
-function buildODTContent(analyse) {
-  const title = analyse?.title || 'sans-titre';
-  const date  = analyse?.date  || todayISO();
+function buildODTContent(project) {
+  const title = project?.title || 'sans-titre';
+  const date  = project?.date  || todayISO();
 
   function odtTextPreserve(txt) {
     if (txt == null || txt === '') return '<text:p text:style-name="Body">—</text:p>';
@@ -6660,7 +6660,7 @@ function buildODTContent(analyse) {
   };
 
   let body = '';
-  body += H(1, `analyse · ${title}`);
+  body += H(1, `project · ${title}`);
   body += P(`Date : ${date}`);
   body += `<text:p text:style-name="Body"/>`;
 
@@ -6671,7 +6671,7 @@ function buildODTContent(analyse) {
 
       if (section?.repeatable) {
         const sectionKey = App?.model?.sectionKeyOf ? App.model.sectionKeyOf(section, idx) : `section-${idx+1}`;
-        const items = Array.isArray(analyse?.data?.[sectionKey]) ? analyse.data[sectionKey] : [];
+        const items = Array.isArray(project?.data?.[sectionKey]) ? project.data[sectionKey] : [];
         body += `<table:table table:style-name="KVTable">`;
         if (items.length === 0) {
           body += kvRow(section?.title || 'Bloc', `<text:p text:style-name="Body">—</text:p>`);
@@ -6738,7 +6738,7 @@ function buildODTContent(analyse) {
           let block = '';
           if (g.repeatable) {
             const KEY = `__grp__${g.name}`;
-            const arr = Array.isArray((analyse?.data||{})[KEY]) ? analyse.data[KEY] : [];
+            const arr = Array.isArray((project?.data||{})[KEY]) ? project.data[KEY] : [];
             if (arr.length === 0) {
               block = `<text:p text:style-name="Body">—</text:p>`;
             } else {
@@ -6760,8 +6760,8 @@ function buildODTContent(analyse) {
           // groupe simple
           (field.fields||[]).forEach(sf=>{
             const raw = sf.type==='date'
-              ? getDateDisplayFromRawContainer(analyse, sf.name)
-              : (analyse?.data||{})[sf.name];
+              ? getDateDisplayFromRawContainer(project, sf.name)
+              : (project?.data||{})[sf.name];
             body += kvRow(sf?.label || sf?.name, valueToXML(sf, raw));
           });
           return;
@@ -6769,8 +6769,8 @@ function buildODTContent(analyse) {
 
         const label = field?.label || field?.name || '';
         const raw   = (field.type==='date')
-          ? getDateDisplayFromRawContainer(analyse, field.name)
-          : (analyse?.data||{})[field?.name];
+          ? getDateDisplayFromRawContainer(project, field.name)
+          : (project?.data||{})[field?.name];
         body += kvRow(label, valueToXML(field, raw));
       });
       body += `</table:table><text:p text:style-name="Body"/>`;
@@ -6840,9 +6840,9 @@ function buildODTContent(analyse) {
  xmlns:dc="http://purl.org/dc/elements/1.1/"
  office:version="1.2">
   <office:meta>
-    <dc:title>${xmlEscape(`${date} - analyse - ${title}`)}</dc:title>
+    <dc:title>${xmlEscape(`${date} - project - ${title}`)}</dc:title>
     <meta:creation-date>${new Date().toISOString()}</meta:creation-date>
-    <meta:generator>analyses Single-File</meta:generator>
+    <meta:generator>projets Single-File</meta:generator>
   </office:meta>
 </office:document-meta>`;
 
@@ -6880,7 +6880,7 @@ function buildODTContent(analyse) {
 
 
 function exportODT(){
-  if (!App?.state?.currentAnalyse) { alert('Aucune analyse ouverte.'); return; }
+  if (!App?.state?.currentAnalyse) { alert('Aucun projet ouvert.'); return; }
 
   const ok = window.confirm(
     "⚠️ Votre fichier .ODT sera exporté en clair.\n\n" +
@@ -6897,7 +6897,7 @@ function exportODT(){
   const titleSlug = (App?.util?.slug ? App.util.slug(App?.state?.currentAnalyse?.title)
                                      : (s=>String(s||'').toLowerCase().replace(/\W+/g,'-'))(App?.state?.currentAnalyse?.title))
                     || 'sans-titre';
-  const base     = `analyse_${titleSlug}`;
+  const base     = `project_${titleSlug}`;
   const fileName = App.helpers.makeTimestampedFilename(base, 'odt');
 
   const a = document.createElement('a');
@@ -6911,8 +6911,8 @@ function exportODT(){
 
 
   // ---------- EXPORT ZIP HTML (aperçu autonome + JSON) ----------
-  function buildPreviewHTMLStandalone(analyse) {
-    const body = buildPreviewHTML(analyse);
+  function buildPreviewHTMLStandalone(project) {
+    const body = buildPreviewHTML(project);
     // CSS minimal inline pour un rendu autonome
     const css = `
       body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111827;background:#fff;margin:24px}
@@ -6926,11 +6926,11 @@ function exportODT(){
       .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;white-space:normal}
       a{color:#2563eb;text-decoration:underline}
     `;
-    return `<!doctype html><html lang="fr"><meta charset="utf-8"><title>${htmlEscape(analyse?.title||'aperçu')}</title><style>${css}</style><body>${body}</body></html>`;
+    return `<!doctype html><html lang="fr"><meta charset="utf-8"><title>${htmlEscape(project?.title||'aperçu')}</title><style>${css}</style><body>${body}</body></html>`;
   }
 
   // remplace/complete ta getAllFilesForAnalyse actuelle
-async function getAllFilesForAnalyse(analyse) {
+async function getAllFilesForAnalyse(project) {
   // ------------- utils
   const norm = (s) => String(s ?? '')
     .replace(/[\u200B-\u200D\uFEFF]/g, '') // zero-width
@@ -6964,7 +6964,7 @@ async function getAllFilesForAnalyse(analyse) {
     });
   } catch {}
 
-  // (B) analyse.data (listes __listed) — avec garde-fous pour ne pas “fuir” d’un autre process
+  // (B) project.data (listes __listed) — avec garde-fous pour ne pas “fuir” d’un autre process
   try {
     // détecter les clés __listed vraiment visibles (si on les a)
     const visible = new Set();
@@ -6996,14 +6996,14 @@ async function getAllFilesForAnalyse(analyse) {
     };
 
     // --- stratégie SÛRE contre la fuite inter-process -----------------
-    // On ne lit analyse.data que si des listes __listed sont VISIBLES dans l'UI.
+    // On ne lit project.data que si des listes __listed sont VISIBLES dans l'UI.
     if (useFilter) {
-      // On connaît les clés visibles → on peut compléter depuis analyse.data,
+      // On connaît les clés visibles → on peut compléter depuis project.data,
       // mais uniquement pour ces clés (le filtre est déjà appliqué plus haut).
-      addFromDataDeep(analyse?.data);
+      addFromDataDeep(project?.data);
     } else {
       // Aucune liste de fichiers visible dans le process courant :
-      // on NE lit PAS analyse.data pour éviter d'embarquer des noms d'un ancien process.
+      // on NE lit PAS project.data pour éviter d'embarquer des noms d'un ancien process.
       // On se contente de ce que le DOM a détecté (expected), éventuellement vide.
     }
   } catch {}
@@ -7019,7 +7019,7 @@ async function getAllFilesForAnalyse(analyse) {
   let current = new Set(), old = new Set();
   try {
     if (typeof computeFileBuckets === 'function') {
-      const b = computeFileBuckets(analyse) || {};
+      const b = computeFileBuckets(project) || {};
       const asNormSet = (iterable) => {
         const S = new Set();
         for (const x of (iterable || [])) {
@@ -7035,9 +7035,9 @@ async function getAllFilesForAnalyse(analyse) {
     console.warn('[export] computeFileBuckets a échoué, tous en "current".', e);
   }
 
-  // ------------- accès au dossier de l’analyse (pour marquer présent/absent)
-  let dir = App.files.getDirForAnalyse(analyse);
-  if (!dir) { try { await App.files.restoreHandles(); } catch {} dir = App.files.getDirForAnalyse(analyse); }
+  // ------------- accès au dossier du projet (pour marquer présent/absent)
+  let dir = App.files.getDirForAnalyse(project);
+  if (!dir) { try { await App.files.restoreHandles(); } catch {} dir = App.files.getDirForAnalyse(project); }
   let canRead = false;
   if (dir && dir.getFileHandle) { try { canRead = await App.files.ensurePermission(dir, 'read'); } catch {} }
 
@@ -7078,11 +7078,11 @@ async function getAllFilesForAnalyse(analyse) {
 }
 
 
-     function computeFileBuckets(analyse){
+     function computeFileBuckets(project){
            const norm = (s) => String(s ?? '').trim().normalize('NFKC');
            const current = new Set();
            const old = new Set();
-           const data = analyse?.data || {};
+           const data = project?.data || {};
      
            // rend "old/current" pour une pile donnée (liste plate)
            const feed = (list) => {
@@ -7110,7 +7110,7 @@ async function getAllFilesForAnalyse(analyse) {
 async function exportFullBundleZip() {
   console.log('→ exportFullBundleZip déclenché');
   if (!App?.state?.currentAnalyse) {
-    alert('Aucune analyse ouverte.');
+    alert('Aucun projet ouvert.');
     return;
   }
 
@@ -7163,7 +7163,7 @@ async function exportFullBundleZip() {
   }
 
   // 4bis) analysis.json en clair (le conteneur ZIP sera chiffré)
-  const analysisJson = { type:'analyse-export', version:2, analyse: enq };
+  const analysisJson = { type:'project-export', version:2, project: enq };
   entries.push({
     name: 'analysis.json',
     data: new TextEncoder().encode(JSON.stringify(analysisJson, null, 2))
@@ -7190,7 +7190,7 @@ async function exportFullBundleZip() {
 
   // 7) Télécharger
   const titleSlug = (App?.util?.slug ? App.util.slug(enq?.title) : slug(enq?.title)) || 'sans-titre';
-  const base      = `analyse_${titleSlug}`;
+  const base      = `project_${titleSlug}`;
   const zipName   = App.helpers.makeTimestampedFilename(base, 'zip');
 
   const a = document.createElement('a');
@@ -7204,7 +7204,7 @@ async function exportFullBundleZip() {
 
   
 async function exportZipAESCompat(){
-  if (!App?.state?.currentAnalyse) { alert('Aucune analyse ouverte.'); return; }
+  if (!App?.state?.currentAnalyse) { alert('Aucun projet ouvert.'); return; }
 
   const pass = await App.uiList?.openPasswordDialog?.({ mode: 'unlock' });
   if (!pass) { App?.uiList?.showToast?.('Export annulé.', 2000, 'warn'); return; }
@@ -7255,7 +7255,7 @@ async function exportZipAESCompat(){
   }
 
   // 4) analysis.json en clair (le conteneur ZIP sera chiffré)
-  const analysisJson = { type:'analyse-export', version:2, analyse: enq };
+  const analysisJson = { type:'project-export', version:2, project: enq };
   entries.push({
     name: 'analysis.json',
     data: new TextEncoder().encode(JSON.stringify(analysisJson, null, 2))
@@ -7280,7 +7280,7 @@ async function exportZipAESCompat(){
 
   // 6) Télécharger
   const titleSlug = (App?.util?.slug ? App.util.slug(enq?.title) : (s=>String(s||'').toLowerCase().replace(/\W+/g,'-'))(enq?.title)) || 'sans-titre';
-  const base      = `analyse_${titleSlug}`;
+  const base      = `project_${titleSlug}`;
   const zipName   = App.helpers.makeTimestampedFilename(base, 'zip');
 
   const a = document.createElement('a');
@@ -7450,13 +7450,13 @@ async function exportZipAESCompat(){
             throw new Error('Mot de passe invalide ou données corrompues');
           }
           const plain = JSON.parse(new TextDecoder().decode(new Uint8Array(pt)));
-          if (plain?.type !== 'analyse-export' || !plain?.analyse) throw new Error('Export déchiffré incomplet');
-          src = plain.analyse;
+          if (plain?.type !== 'project-export' || !plain?.project) throw new Error('Export déchiffré incomplet');
+          src = plain.project;
     
         } else {
           // Compat : JSON non chiffré (ancienne version)
-          if (meta?.type !== 'analyse-export' || !meta?.analyse) throw new Error('Export incompatible');
-          src = meta.analyse;
+          if (meta?.type !== 'project-export' || !meta?.project) throw new Error('Export incompatible');
+          src = meta.project;
         }
       } catch {
         throw new Error('analysis.json invalide');
@@ -7611,15 +7611,15 @@ async function exportZipAESCompat(){
   async function deleteCurrent(){
     const cur = App?.state?.currentAnalyse;
     if (!cur){
-      App?.uiList?.showToast?.('Aucune analyse sélectionnée.', 3000, 'error') ?? alert('Aucune analyse sélectionnée.');
+      App?.uiList?.showToast?.('Aucun projet ouvert sélectionné.', 3000, 'error') ?? alert('Aucun projet ouvert sélectionné.');
       return;
     }
-    const label = cur.title ? `« ${cur.title} »` : 'cette analyse';
+    const label = cur.title ? `« ${cur.title} »` : 'ce projet';
     const ok = App?.helpers?.confirm?.(`Supprimer définitivement ${label} ?`) ?? confirm(`Supprimer définitivement ${label} ?`);
     if (!ok) return;
 
     try{
-      await App.storage.del('analyses', cur.id);
+      await App.storage.del('projets', cur.id);
       try { await App.secStore.clearFsHandle(cur.id); } catch(_){}
       App.uiList.closeDetail();
       await App.uiList.refreshList();
@@ -7953,7 +7953,7 @@ App.idle = (function () {
     // 2) Fallback : s’il n’y a PAS de sentinel, essayer de déchiffrer 1 enregistrement
     if (!ok) {
       try {
-        const rows = await App.storage.all('analyses');
+        const rows = await App.storage.all('projets');
         if (Array.isArray(rows) && rows.length > 0) {
           const testKey = await App.secStore.deriveKeyForPasswordNow(pass);
           await App.crypto.aesDecryptJson(testKey, rows[0]._enc); // exception si mauvais mot de passe
@@ -8242,19 +8242,19 @@ if (!ok.valid) {
     return local(desired);
   }
 
-  function loadPageFor(analyseId){
+  function loadPageFor(projectId){
     try {
       const s = App.kv.get('pageState');
       const map = s ? JSON.parse(s) : {};
-      return Number.isInteger(map[analyseId]) ? map[analyseId] : 0;
+      return Number.isInteger(map[projectId]) ? map[projectId] : 0;
     } catch(_) { return 0; }
   }
 
-  function savePageFor(analyseId, pageIdx){
+  function savePageFor(projectId, pageIdx){
     try {
       const s = App.kv.get('pageState');
       const map = s ? JSON.parse(s) : {};
-      map[analyseId] = pageIdx|0;
+      map[projectId] = pageIdx|0;
       App.kv.set('pageState', JSON.stringify(map));
     } catch(_) {}
   }
@@ -8288,7 +8288,7 @@ if (!ok.valid) {
     const hasSalt = !!localStorage.getItem('kdfSalt');
     let hasRows = false;
     try {
-      const rows = await App.storage.all('analyses');
+      const rows = await App.storage.all('projets');
       hasRows = Array.isArray(rows) && rows.length > 0;
     } catch(_) {}
     return !hasSalt && !hasRows;
@@ -8297,16 +8297,16 @@ if (!ok.valid) {
   async function hardResetAndSetup(){
     const ok = App.helpers.confirm(
       "Réinitialiser l'application ?\n\n" +
-      "• Toutes les analyses seront SUPPRIMÉES\n" +
+      "• Toutes les projets seront SUPPRIMÉES\n" +
       "• Le mot de passe sera effacé\n" +
       "• Vous créerez ensuite un nouveau mot de passe"
     );
     if (!ok) return;
 
-    // Efface toutes les analyses
+    // Efface toutes les projets
     try {
-      const rows = await App.storage.all('analyses');
-      for (const r of (rows || [])) { await App.storage.del('analyses', r.id); }
+      const rows = await App.storage.all('projets');
+      for (const r of (rows || [])) { await App.storage.del('projets', r.id); }
     } catch(_) {}
 
     // Efface UI/fsHandles si présents (best effort)
@@ -8316,7 +8316,7 @@ if (!ok.valid) {
     } catch(_) {}
     try {
       const fh = await App.storage.all('fsHandles');
-      for (const h of (fh || [])) { await App.storage.del('fsHandles', h.analyseId); }
+      for (const h of (fh || [])) { await App.storage.del('fsHandles', h.projectId); }
     } catch(_) {}
 
     // Efface paramètres KDF
@@ -8402,13 +8402,13 @@ if (!ok.valid) {
         // 3) Dérive la clé candidate (sans la fixer)
         const candidateKey = await App.crypto.deriveKeyFromPassword(pass);
 
-        // 4) Vérification via sentinel (fallback : 1ère analyse)
+        // 4) Vérification via sentinel (fallback : 1er projet)
         let valid = false;
         try { valid = await App.secStore.verifyPasswordWithSentinel(pass); } catch {}
 
         if (!valid) {
           let rows = [];
-          try { rows = await App.storage.all('analyses'); } catch {}
+          try { rows = await App.storage.all('projets'); } catch {}
           if (Array.isArray(rows) && rows.length > 0) {
             try { await App.crypto.aesDecryptJson(candidateKey, rows[0]._enc); valid = true; } catch {}
           }
@@ -8594,7 +8594,7 @@ if (!ok.valid) {
     App.dom.on(App.dom.getById('deleteBtn'),   'click', App?.crud?.deleteCurrent);
     App.dom.on(App.dom.getById('backBtn'),     'click', ()=>{
       App?.uiList?.closeDetail?.();
-      App.dom.getById('analyseList')?.querySelectorAll('.item.selected')?.forEach(n=>n.classList.remove('selected'));
+      App.dom.getById('projectList')?.querySelectorAll('.item.selected')?.forEach(n=>n.classList.remove('selected'));
     });
     App.dom.on(App.dom.getById('previewBtn'),  'click', App?.preview?.togglePreview);
     App.dom.on(App.dom.getById('toggleMissingBtn'), 'click', ()=>{
@@ -8631,7 +8631,7 @@ if (!ok.valid) {
       t = App.timing.raf(App?.uiList?.renderList);
     });
 
-    // 9) Rouvrir la dernière analyse uniquement si déverrouillé
+    // 9) Rouvrir le dernier projet uniquement si déverrouillé
     if (App.crypto.currentKey) {
       try{
         const last = await App.storage.get('ui','last');
