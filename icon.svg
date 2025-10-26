@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+<rect width="512" height="512" fill="#0B0B0C"/><circle cx="256" cy="256" r="154" fill="none" stroke="#4F8CFF3c" stroke-width="8"/>
+<circle cx="256" cy="256" r="115" fill="none" stroke="#4F8CFF2d" stroke-width="8"/>
+<circle cx="256" cy="256" r="77" fill="none" stroke="#4F8CFF1e" stroke-width="8"/>
+<circle cx="256" cy="256" r="38" fill="none" stroke="#4F8CFF0f" stroke-width="8"/>
+<line x1="256" y1="256" x2="220" y2="110" stroke="#4F8CFF00" stroke-width="5"/>
+<line x1="256" y1="256" x2="223" y2="109" stroke="#4F8CFF03" stroke-width="5"/>
+<line x1="256" y1="256" x2="225" y2="109" stroke="#4F8CFF07" stroke-width="5"/>
+<line x1="256" y1="256" x2="228" y2="108" stroke="#4F8CFF0c" stroke-width="5"/>
+<line x1="256" y1="256" x2="230" y2="108" stroke="#4F8CFF11" stroke-width="5"/>
+<line x1="256" y1="256" x2="233" y2="107" stroke="#4F8CFF17" stroke-width="5"/>
+<line x1="256" y1="256" x2="235" y2="107" stroke="#4F8CFF1c" stroke-width="5"/>
+<line x1="256" y1="256" x2="238" y2="107" stroke="#4F8CFF22" stroke-width="5"/>
+<line x1="256" y1="256" x2="241" y2="106" stroke="#4F8CFF28" stroke-width="5"/>
+<line x1="256" y1="256" x2="243" y2="106" stroke="#4F8CFF2f" stroke-width="5"/>
+<line x1="256" y1="256" x2="246" y2="106" stroke="#4F8CFF35" stroke-width="5"/>
+<line x1="256" y1="256" x2="249" y2="106" stroke="#4F8CFF3b" stroke-width="5"/>
+<line x1="256" y1="256" x2="251" y2="106" stroke="#4F8CFF42" stroke-width="5"/>
+<line x1="256" y1="256" x2="254" y2="106" stroke="#4F8CFF49" stroke-width="5"/>
+<line x1="256" y1="256" x2="256" y2="106" stroke="#4F8CFF50" stroke-width="5"/>
+<line x1="256" y1="256" x2="258" y2="106" stroke="#4F8CFF49" stroke-width="5"/>
+<line x1="256" y1="256" x2="261" y2="106" stroke="#4F8CFF42" stroke-width="5"/>
+<line x1="256" y1="256" x2="263" y2="106" stroke="#4F8CFF3b" stroke-width="5"/>
+<line x1="256" y1="256" x2="266" y2="106" stroke="#4F8CFF35" stroke-width="5"/>
+<line x1="256" y1="256" x2="269" y2="106" stroke="#4F8CFF2f" stroke-width="5"/>
+<line x1="256" y1="256" x2="271" y2="106" stroke="#4F8CFF28" stroke-width="5"/>
+<line x1="256" y1="256" x2="274" y2="107" stroke="#4F8CFF22" stroke-width="5"/>
+<line x1="256" y1="256" x2="277" y2="107" stroke="#4F8CFF1c" stroke-width="5"/>
+<line x1="256" y1="256" x2="279" y2="107" stroke="#4F8CFF17" stroke-width="5"/>
+<line x1="256" y1="256" x2="282" y2="108" stroke="#4F8CFF11" stroke-width="5"/>
+<line x1="256" y1="256" x2="284" y2="108" stroke="#4F8CFF0c" stroke-width="5"/>
+<line x1="256" y1="256" x2="287" y2="109" stroke="#4F8CFF07" stroke-width="5"/>
+<line x1="256" y1="256" x2="289" y2="109" stroke="#4F8CFF03" stroke-width="5"/>
+<line x1="256" y1="256" x2="292" y2="110" stroke="#4F8CFF00" stroke-width="5"/>
+<circle cx="256" cy="256" r="13" fill="#4F8CFF"/>
+<circle cx="256" cy="256" r="157" fill="none" stroke="#4F8CFF20" stroke-width="4"/>
+</svg>
