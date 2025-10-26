@@ -7713,7 +7713,7 @@ App.idle = (function () {
     const qpush = (name, args) => new Promise((res, rej) => App.pwa._q.push([name, args, res, rej]));
   
     // -------- Manifest (si absent) --------
-    function ensureManifest(href = '/manifest.webmanifest') {
+    function ensureManifest(href = 'manifest.webmanifest') {
       if (document.querySelector('link[rel="manifest"]')) return;
       const link = document.createElement('link');
       link.rel = 'manifest';
@@ -7816,11 +7816,11 @@ App.idle = (function () {
     delete App.pwa._q;
   
     // -------- SW registration (au load) --------
-    function registerSW(path = '/sw.js') {
+    function registerSW(path = 'sw.js') {
       if (!('serviceWorker' in navigator)) return;
 
       // Défense : si on reçoit un Event par erreur, retomber sur la valeur par défaut
-      if (path && typeof path === 'object') path = '/sw.js';
+      if (path && typeof path === 'object') path = 'sw.js';
 
       navigator.serviceWorker.register(path).then(reg => {
         reg.addEventListener('updatefound', () => {
@@ -7847,7 +7847,7 @@ App.idle = (function () {
       bindOnlineOfflineToasts();
       handleInstallPrompt();
 
-      const swPath = '/sw.js'; // ou 'sw.js' si le fichier est à côté d’index.html
+      const swPath = 'sw.js';
       if (document.readyState === 'complete') {
         registerSW(swPath);
       } else {
