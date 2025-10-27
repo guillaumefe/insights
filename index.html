@@ -5699,7 +5699,8 @@ function attachTip(parentEl, field){
   parentEl.appendChild(t);
 }
 function renderInputForField(field, value, onChange, idxForRepeatable=null, ctx=null){
-  const fid = `f_${field.name}` + (idxForRepeatable!==null ? `_${idxForRepeatable}` : '');
+  const base = ctx?.uid ? `f_${ctx.uid}` : `f_${field.name}`;
+  const fid  = base + (idxForRepeatable !== null && idxForRepeatable !== undefined ? `_${idxForRepeatable}` : '');
   const attrs = {id: fid, name: field.name, 'aria-label': field.label || field.name, required: !!field.required};
   if(field.placeholder) attrs.placeholder = field.placeholder;
 
