@@ -4305,7 +4305,7 @@ function refreshProgressUI(){
                     updateCompletionBannerUI(pct, filled, total);
                   }
                 },
-                null,
+                `${idx}`,
                 { row: obj, uid: `${KEY}__${sf.name}__i${idx}` }
               );
 
@@ -5112,8 +5112,8 @@ function renderOneSection(targetHost, section, sidx){
                 else item[sf.name] = v;
                 await persist();
               },
-              null,
-              { row: item, uid: `${sectionKey}__blk${i}__${sf.name}` }
+              `${i}`,
+              { rd: `${sectionKey}__blk${i}__${sf.name}` }
             );
             r.append(l, input);
             attachTip(r, sf);
@@ -5180,7 +5180,7 @@ function renderOneSection(targetHost, section, sidx){
             else item[f.name] = v;
             await persist();
           },
-          null,
+          `${i}`,
           { row: item, uid:`${sectionKey}__blk${i}__${f.name}` }
         );
         r.append(l, input);
