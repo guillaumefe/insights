@@ -2133,7 +2133,7 @@ async function importEncryptedBundleFromFile(file) {
       fields: [
         { name:"toto1", repeatable:true,  label:"Secret?",            type:"radio",   options:["Oui","Non"], required:true },
         { name:"toto2", repeatable:true,  label:"Date de la réunion", type:"date",    required:true },
-        { name:"filou", repeatable:true,  label:"Filou",      type:"file" }
+        { name:"filou", repeatable:true,  label:"Filou",              type:"file" }
       ]
     },
     {
@@ -2145,153 +2145,164 @@ async function importEncryptedBundleFromFile(file) {
     }
   ];
 
-let PROCESSES = null; // null = mode ancien (mono-processus). Sinon: [{ name, sections:[...] }, ...]
+  let PROCESSES = null; // null = mode ancien (mono-processus). Sinon: [{ name, sections:[...] }, ...]
 
-function isSectionsArray(x){
-  return Array.isArray(x) && x.every(s => s && typeof s === 'object' && (('title' in s) || ('key' in s)));
-}
-function isProcessesArray(x){
-  return Array.isArray(x) && x.every(p =>
-    p && typeof p === 'object' && typeof p.name === 'string' && isSectionsArray(p.sections)
-  );
-}
-  // Copie vivante du processus courant
-  let TEMPLATE = DEFAULT_TEMPLATE.slice();
+  function isSectionsArray(x){
+    return Array.isArray(x) && x.every(s => s && typeof s === 'object' && (('title' in s) || ('key' in s)));
+  }
+  function isProcessesArray(x){
+    return Array.isArray(x) && x.every(p =>
+      p && typeof p === 'object' && typeof p.name === 'string' && isSectionsArray(p.sections)
+    );
+  }
+
+  // ------ Deep clone helper (fallback universel) ------
+  function deepClone(obj) {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (obj instanceof Date) return new Date(obj);
+    if (Array.isArray(obj)) return obj.map(deepClone);
+    const clone = {};
+    for (const key in obj) clone[key] = deepClone(obj[key]);
+    return clone;
+  }
+
+  // Copie indépendante du template courant (évite les fuites de références)
+  let TEMPLATE = deepClone(DEFAULT_TEMPLATE);
+
   // Liste plate (utilisée par la recherche, etc.)
-let TEMPLATE_FIELD_DEFS = TEMPLATE.flatMap(sec =>
-  (sec.fields || []).flatMap(f =>
-    (f && f.group && Array.isArray(f.fields))
-      ? f.fields.map(sf => ({ ...sf, __group: f.group })) // garde le parent
-      : [f]
-  )
-);
+  let TEMPLATE_FIELD_DEFS = TEMPLATE.flatMap(sec =>
+    (sec.fields || []).flatMap(f =>
+      (f && f.group && Array.isArray(f.fields))
+        ? f.fields.map(sf => ({ ...sf, __group: f.group })) // garde le parent
+        : [f]
+    )
+  );
 
-function validateField(fd, secIndex, fldIndex){
-  // --- Cas "groupe de champs" ---
-  if (fd && typeof fd === 'object' && 'group' in fd) {
-    const g = fd.group;
-    if (typeof g !== 'object' || g == null) {
-      return `section[${secIndex}].fields[${fldIndex}].group doit être un objet`;
-    }
-    if (!('name' in g) || typeof g.name !== 'string' || !g.name.trim()) {
-      return `section[${secIndex}].fields[${fldIndex}].group.name manquant`;
-    }
-    if (!Array.isArray(fd.fields) || fd.fields.length === 0) {
-      return `section[${secIndex}].fields[${fldIndex}].fields doit être un tableau non vide`;
-    }
-    // valider récursivement les champs internes (mais pas d'imbrication de groupes dans groupes)
-    for (let k = 0; k < fd.fields.length; k++) {
-      const inner = fd.fields[k];
-      if (!inner || typeof inner !== 'object') {
-        return `section[${secIndex}].fields[${fldIndex}].fields[${k}] non objet`;
+  function validateField(fd, secIndex, fldIndex){
+    // --- Cas "groupe de champs" ---
+    if (fd && typeof fd === 'object' && 'group' in fd) {
+      const g = fd.group;
+      if (typeof g !== 'object' || g == null) {
+        return `section[${secIndex}].fields[${fldIndex}].group doit être un objet`;
       }
-      if ('group' in inner) {
-        return `section[${secIndex}].fields[${fldIndex}].fields[${k}] : groupes imbriqués non supportés`;
+      if (!('name' in g) || typeof g.name !== 'string' || !g.name.trim()) {
+        return `section[${secIndex}].fields[${fldIndex}].group.name manquant`;
       }
-      const r = validateField(inner, secIndex, `${fldIndex}.${k}`); // réutilise la même validation pour un champ simple
-      if (r) return r;
+      if (!Array.isArray(fd.fields) || fd.fields.length === 0) {
+        return `section[${secIndex}].fields[${fldIndex}].fields doit être un tableau non vide`;
+      }
+      // valider récursivement les champs internes (pas de groupes imbriqués)
+      for (let k = 0; k < fd.fields.length; k++) {
+        const inner = fd.fields[k];
+        if (!inner || typeof inner !== 'object') {
+          return `section[${secIndex}].fields[${fldIndex}].fields[${k}] non objet`;
+        }
+        if ('group' in inner) {
+          return `section[${secIndex}].fields[${fldIndex}].fields[${k}] : groupes imbriqués non supportés`;
+        }
+        const r = validateField(inner, secIndex, `${fldIndex}.${k}`);
+        if (r) return r;
+      }
+      return null;
+    }
+
+    // --- Cas "champ simple" ---
+    if (fd == null || typeof fd !== 'object') return `section[${secIndex}].fields[${fldIndex}] non objet`;
+    if (!('name' in fd) || typeof fd.name !== 'string' || !fd.name.trim()) return `section[${secIndex}].fields[${fldIndex}].name manquant`;
+    if (!('type' in fd) || typeof fd.type !== 'string') return `section[${secIndex}].fields[${fldIndex}].type manquant`;
+    if (fd.type === 'radio' || fd.type === 'select'){
+      if (!Array.isArray(fd.options) || fd.options.length === 0) return `section[${secIndex}].fields[${fldIndex}].options requis pour ${fd.type}`;
     }
     return null;
   }
 
-  // --- Cas "champ simple" (historique) ---
-  if (fd == null || typeof fd !== 'object') return `section[${secIndex}].fields[${fldIndex}] non objet`;
-  if (!('name' in fd) || typeof fd.name !== 'string' || !fd.name.trim()) return `section[${secIndex}].fields[${fldIndex}].name manquant`;
-  if (!('type' in fd) || typeof fd.type !== 'string') return `section[${secIndex}].fields[${fldIndex}].type manquant`;
-  if (fd.type === 'radio' || fd.type === 'select'){
-    if (!Array.isArray(fd.options) || fd.options.length === 0) return `section[${secIndex}].fields[${fldIndex}].options requis pour ${fd.type}`;
-  }
-  return null;
-}
-
-
-
-function validateTemplate(tpl){
-  // 1) format historique: tableau de sections
-  if (isSectionsArray(tpl)) {
-    // on reuse la validation existante des sections/champs
-    for (let i=0;i<tpl.length;i++){
-      const s = tpl[i];
-      if ('fields' in s && !Array.isArray(s.fields)) return { valid:false, reason:`section[${i}].fields doit être un tableau` };
-      if (Array.isArray(s.fields)){
-        for (let j=0;j<s.fields.length;j++){
-          const r = validateField(s.fields[j], i, j);
-          if (r) return { valid:false, reason:r };
-        }
-      }
-    }
-    return { valid:true, kind:'sections' };
-  }
-
-  // 2) nouveau format: tableau de processus { name, sections:[...] }
-  if (isProcessesArray(tpl)) {
-    for (let p=0;p<tpl.length;p++){
-      const proc = tpl[p];
-      for (let i=0;i<proc.sections.length;i++){
-        const s = proc.sections[i];
-        if ('fields' in s && !Array.isArray(s.fields)) return { valid:false, reason:`processus[${p}].sections[${i}].fields doit être un tableau` };
+  function validateTemplate(tpl){
+    // 1) format historique: tableau de sections
+    if (isSectionsArray(tpl)) {
+      for (let i=0;i<tpl.length;i++){
+        const s = tpl[i];
+        if ('fields' in s && !Array.isArray(s.fields)) return { valid:false, reason:`section[${i}].fields doit être un tableau` };
         if (Array.isArray(s.fields)){
           for (let j=0;j<s.fields.length;j++){
-            const r = validateField(s.fields[j], `${p}/${i}`, j);
+            const r = validateField(s.fields[j], i, j);
             if (r) return { valid:false, reason:r };
           }
         }
       }
+      return { valid:true, kind:'sections' };
     }
-    return { valid:true, kind:'processes' };
+
+    // 2) nouveau format: tableau de processus { name, sections:[...] }
+    if (isProcessesArray(tpl)) {
+      for (let p=0;p<tpl.length;p++){
+        const proc = tpl[p];
+        for (let i=0;i<proc.sections.length;i++){
+          const s = proc.sections[i];
+          if ('fields' in s && !Array.isArray(s.fields)) return { valid:false, reason:`processus[${p}].sections[${i}].fields doit être un tableau` };
+          if (Array.isArray(s.fields)){
+            for (let j=0;j<s.fields.length;j++){
+              const r = validateField(s.fields[j], `${p}/${i}`, j);
+              if (r) return { valid:false, reason:r };
+            }
+          }
+        }
+      }
+      return { valid:true, kind:'processes' };
+    }
+
+    return { valid:false, reason:'racine ni "sections[]" ni "processes[]"' };
   }
 
-  return { valid:false, reason:'racine ni "sections[]" ni "processes[]"' };
-}
+  function setTemplate(newTemplate){
+    const ok = validateTemplate(newTemplate);
+    if (!ok.valid) throw new Error('Processus invalide : ' + ok.reason);
 
+    if (ok.kind === 'sections') {
+      PROCESSES = null;                              // mode historique
+      TEMPLATE  = (typeof structuredClone === 'function')
+        ? structuredClone(newTemplate)
+        : deepClone(newTemplate);                    // ✅ deep clone
+      TEMPLATE_FIELD_DEFS = TEMPLATE.flatMap(sec => sec.fields || []);
+    } else { // kind === 'processes'
+      const cloneTpl = (typeof structuredClone === 'function')
+        ? structuredClone(newTemplate)
+        : deepClone(newTemplate);                    // ✅ deep clone
 
-function setTemplate(newTemplate){
-  const ok = validateTemplate(newTemplate);
-  if (!ok.valid) throw new Error('Processus invalide : ' + ok.reason);
+      PROCESSES = cloneTpl;
+      // Expose la 1re colonne sans lien de référence :
+      TEMPLATE  = (typeof structuredClone === 'function')
+        ? structuredClone(PROCESSES[0]?.sections || [])
+        : deepClone(PROCESSES[0]?.sections || []);   // ✅ deep clone
+      // flat defs = concat de tous les champs de tous les processus
+      TEMPLATE_FIELD_DEFS = PROCESSES.flatMap(pr => (pr.sections||[]).flatMap(s => s.fields || []));
+    }
 
-  if (ok.kind === 'sections') {
-    PROCESSES = null;                // mode historique
-    TEMPLATE = newTemplate;          // existant
-    TEMPLATE_FIELD_DEFS = TEMPLATE.flatMap(sec => sec.fields || []);
-  } else { // kind === 'processes'
-    PROCESSES = newTemplate.slice(); // multiprocessus
-    // Par défaut pour les écrans qui lisent encore App.model.TEMPLATE, on expose la 1re colonne
-    TEMPLATE = (PROCESSES[0]?.sections || []).slice();
-    // flat defs = concat de tous les champs de tous les processus (utile pour la recherche/has:eq)
-    TEMPLATE_FIELD_DEFS = PROCESSES.flatMap(pr => (pr.sections||[]).flatMap(s => s.fields || []));
-  }
-
-  resetSectionKeyCache();
-  clampPage();
+    resetSectionKeyCache();
+    clampPage();
 
     (async () => {
       try {
-        // purge legacy clair
         try { localStorage.removeItem('customTemplateJSON'); } catch {}
-    
-        // si clé dispo → chiffrer
         const key = App.crypto?.currentKey;
         if (key && App.crypto?.aesEncryptJson && App.storage?.put) {
           const payload = PROCESSES || TEMPLATE;
           const envelope = await App.crypto.aesEncryptJson(key, payload);
           await App.storage.put('ui', { id: 'customTemplate', value: envelope });
         } else {
-          // fallback (mode non sécurisé)
           localStorage.setItem('customTemplateJSON', JSON.stringify(PROCESSES || TEMPLATE));
         }
       } catch {}
     })();
 
-  try { App.uiList?.showToast?.('Processus chargé.', 2000, 'success'); } catch(_){}
-  try { App.uiList?.renderList?.(); } catch(_){}
-  if (App.state?.currentAnalyse) {
-    try { App.form?.renderForm?.(); App.files?.scanCurrentAnalyse?.(); } catch(_){}
-    try { if (App.preview?.isOpen) App.preview?.renderPreview?.(); } catch(_){}
-  } else {
-    try { App.uiList?.updatePlaceholder?.(); } catch(_){}
+    try { App.uiList?.showToast?.('Processus chargé.', 2000, 'success'); } catch(_){}
+    try { App.uiList?.renderList?.(); } catch(_){}
+    if (App.state?.currentAnalyse) {
+      try { App.form?.renderForm?.(); App.files?.scanCurrentAnalyse?.(); } catch(_){}
+      try { if (App.preview?.isOpen) App.preview?.renderPreview?.(); } catch(_){}
+    } else {
+      try { App.uiList?.updatePlaceholder?.(); } catch(_){}
+    }
   }
-}
-
 
   /* =========================
      DOM HELPERS
@@ -2410,26 +2421,20 @@ function setTemplate(newTemplate){
   function getRawHeader(project, key) {
     return (project._raw && project._raw[key]) || '';
   }
-    function getCurrentAnalyseSafe() {
-      const st = App.state || (App.state = {});
-      let a = st.currentAnalyse || null;
-      if (!a || typeof a !== 'object') return null;
-    
-      // Garantir les sous-objets attendus
-      if (!a.data || typeof a.data !== 'object') a.data = {};
-      if (!a._raw || typeof a._raw !== 'object') a._raw = {};
-    
-      return a;
-    }
-    function setRawHeader(project, key, value) {
-      // accepte soit l’objet direct, soit rien (on lira depuis App.state)
-      const a = (project && typeof project === 'object') ? project : getCurrentAnalyseSafe();
-      if (!a) { console.warn('[setRawHeader] project manquante'); return; }
-    
-      if (!a._raw || typeof a._raw !== 'object') a._raw = {};
-      a._raw[key] = value;
-    }
-
+  function getCurrentAnalyseSafe() {
+    const st = App.state || (App.state = {});
+    let a = st.currentAnalyse || null;
+    if (!a || typeof a !== 'object') return null;
+    if (!a.data || typeof a.data !== 'object') a.data = {};
+    if (!a._raw || typeof a._raw !== 'object') a._raw = {};
+    return a;
+  }
+  function setRawHeader(project, key, value) {
+    const a = (project && typeof project === 'object') ? project : getCurrentAnalyseSafe();
+    if (!a) { console.warn('[setRawHeader] project manquante'); return; }
+    if (!a._raw || typeof a._raw !== 'object') a._raw = {};
+    a._raw[key] = value;
+  }
 
   /* =========================
      “MISSING” / PROGRESSION
@@ -2480,80 +2485,75 @@ function setTemplate(newTemplate){
     return sec?.title || `Section ${idx}`;
   }
 
-function renderPager(host, opts = {}){
-  const isLocal = !!opts.local;
+  function renderPager(host, opts = {}){
+    const isLocal = !!opts.local;
 
-  const getCur = isLocal
-    ? (typeof opts.currentPage === 'function' ? opts.currentPage : (()=>0))
-    : (() => (typeof CURRENT_PAGE === 'number' ? CURRENT_PAGE : 0));
+    const getCur = isLocal
+      ? (typeof opts.currentPage === 'function' ? opts.currentPage : (()=>0))
+      : (() => (typeof CURRENT_PAGE === 'number' ? CURRENT_PAGE : 0));
 
-  const getTP  = isLocal
-    ? (typeof opts.totalPages === 'function' ? opts.totalPages : (()=>1))
-    : (typeof totalPages === 'function' ? totalPages : (()=>1));
+    const getTP  = isLocal
+      ? (typeof opts.totalPages === 'function' ? opts.totalPages : (()=>1))
+      : (typeof totalPages === 'function' ? totalPages : (()=>1));
 
-  const goTo   = isLocal
-    ? (typeof opts.goto === 'function' ? opts.goto : (()=>{}))
-    : (typeof gotoPage === 'function' ? gotoPage : (()=>{}));
+    const goTo   = isLocal
+      ? (typeof opts.goto === 'function' ? opts.goto : (()=>{}))
+      : (typeof gotoPage === 'function' ? gotoPage : (()=>{}));
 
-  if (!isLocal){ if (typeof clampPage === 'function') clampPage(); }
+    if (!isLocal){ if (typeof clampPage === 'function') clampPage(); }
 
-  const tp = getTP();
-  if (tp <= 1) return;
-  const cur = getCur();
-  const last = (cur === tp - 1);
+    const tp = getTP();
+    if (tp <= 1) return;
+    const cur = getCur();
+    const last = (cur === tp - 1);
 
-  const bar = el('div', {
-    class: `pager ${isLocal ? 'local prevnext' : 'global prevnext'}`,
-    role:'navigation',
-    'aria-label': isLocal ? 'Pagination du processus' : 'Pagination du formulaire'
-  });
-
-  // --- boutons
-  const mkBtn = (label, goto, disabled, aria, extraClass='') => {
-    const b = el('button', { class:`btn sm ${extraClass}`, type:'button', disabled:!!disabled });
-    b.textContent = label;
-    if (aria) b.setAttribute('aria-label', aria);
-    if (!disabled) b.addEventListener('click', ()=>{
-      goTo(goto);
-      if (!isLocal) { if (typeof clampPage==='function') clampPage(); App.form?.renderForm?.(); }
+    const bar = el('div', {
+      class: `pager ${isLocal ? 'local prevnext' : 'global prevnext'}`,
+      role:'navigation',
+      'aria-label': isLocal ? 'Pagination du processus' : 'Pagination du formulaire'
     });
-    return b;
-  };
 
-  const prev = mkBtn('← Précédent', Math.max(0, cur - 1), cur<=0, 'Page précédente');
-  const next = mkBtn(last ? (isLocal ? 'Terminer' : 'Terminer') : 'Suivant →',
-                     Math.min(tp - 1, cur + 1), false, 'Page suivante',
-                     last ? 'primary' : 'primary');
-
-  // 🔁 comportement de fin
-  if (last){
-    next.onclick = ()=>{
-      if (isLocal) { typeof opts.onFinish === 'function' && opts.onFinish(); return; }
-      try { App.uiList?.showToast?.('🎉 Félicitations, en route vers la commission d\'homologation !', 6000, 'success'); }
-      catch(_) { alert('Félicitations, en route vers la commission d\'homologation'); }
-      App.uiList?.closeDetail?.();
-      const list = document.getElementById('projectList');
-      list?.querySelectorAll('.item.selected')?.forEach(n => n.classList.remove('selected'));
-      App.uiList?.updateSearchVisibility?.();
+    const mkBtn = (label, goto, disabled, aria, extraClass='') => {
+      const b = el('button', { class:`btn sm ${extraClass}`, type:'button', disabled:!!disabled });
+      b.textContent = label;
+      if (aria) b.setAttribute('aria-label', aria);
+      if (!disabled) b.addEventListener('click', ()=>{
+        goTo(goto);
+        if (!isLocal) { if (typeof clampPage==='function') clampPage(); App.form?.renderForm?.(); }
+      });
+      return b;
     };
+
+    const prev = mkBtn('← Précédent', Math.max(0, cur - 1), cur<=0, 'Page précédente');
+    const next = mkBtn(last ? 'Terminer' : 'Suivant →',
+                       Math.min(tp - 1, cur + 1), false, 'Page suivante',
+                       'primary');
+
+    if (last){
+      next.onclick = ()=>{
+        if (isLocal) { typeof opts.onFinish === 'function' && opts.onFinish(); return; }
+        try { App.uiList?.showToast?.('🎉 Félicitations, en route vers la commission d\'homologation !', 6000, 'success'); }
+        catch(_) { alert('Félicitations, en route vers la commission d\'homologation'); }
+        App.uiList?.closeDetail?.();
+        const list = document.getElementById('projectList');
+        list?.querySelectorAll('.item.selected')?.forEach(n => n.classList.remove('selected'));
+        App.uiList?.updateSearchVisibility?.();
+      };
+    }
+
+    if (isLocal){
+      bar.append(prev, next);
+    } else {
+      const center = el('div', { class:'pager-center' }, {
+        children:[ el('span', { class:'pager-count muted', 'aria-live':'polite' }, { children:[ `(${cur+1}/${tp})` ] }) ]
+      });
+      const left  = el('div', { class:'pager-left'  }, { children:[prev] });
+      const right = el('div', { class:'pager-right' }, { children:[next] });
+      bar.append(left, center, right);
+    }
+
+    host.append(bar);
   }
-
-  // ⚠️ local : on ne met PAS de centre/compteur
-  if (isLocal){
-    bar.append(prev, next);
-  } else {
-    const center = el('div', { class:'pager-center' }, {
-      children:[ el('span', { class:'pager-count muted', 'aria-live':'polite' }, { children:[ `(${cur+1}/${tp})` ] }) ]
-    });
-    const left  = el('div', { class:'pager-left'  }, { children:[prev] });
-    const right = el('div', { class:'pager-right' }, { children:[next] });
-    bar.append(left, center, right);
-  }
-
-  host.append(bar);
-}
-
-
 
   function updateMissingButton(){
     const b = document.getElementById('toggleMissingBtn');
@@ -2576,20 +2576,19 @@ function renderPager(host, opts = {}){
      ========================= */
   window.App = window.App || {};
 
-App.model = {
-  DEFAULT_TEMPLATE,
-  get TEMPLATE(){ return TEMPLATE; },
-  get PROCESSES(){ return PROCESSES; },   // <-- NOUVEAU
-  setTemplate,
-  validateTemplate,
-  sectionKeyOf,
-  legacySectionKeyCandidates,
-  ensureSectionKey,
-  readSectionArray,
-  resetSectionKeyCache,
-  get TEMPLATE_FIELD_DEFS(){ return TEMPLATE_FIELD_DEFS; }
-};
-
+  App.model = {
+    DEFAULT_TEMPLATE,
+    get TEMPLATE(){ return (typeof structuredClone === 'function') ? structuredClone(TEMPLATE) : deepClone(TEMPLATE); },          // 🔒 lecture seule
+    get PROCESSES(){ return (typeof structuredClone === 'function') ? structuredClone(PROCESSES) : deepClone(PROCESSES); },      // 🔒 lecture seule
+    setTemplate,
+    validateTemplate,
+    sectionKeyOf,
+    legacySectionKeyCandidates,
+    ensureSectionKey,
+    readSectionArray,
+    resetSectionKeyCache,
+    get TEMPLATE_FIELD_DEFS(){ return (typeof structuredClone === 'function') ? structuredClone(TEMPLATE_FIELD_DEFS) : deepClone(TEMPLATE_FIELD_DEFS); } // 🔒 optionnel mais sûr
+  };
 
   App.util = {
     $, el, todayISO, slug, xmlEscape, parseDateStrict,
@@ -2601,20 +2600,21 @@ App.model = {
     get currentPage(){ return CURRENT_PAGE; },
     gotoPage, clampPage, pageTitleOf, totalPages
   };
-App.util.getCA = function getCA(){ return App.state?.currentAnalyse || null; };
+  App.util.getCA = function getCA(){ return App.state?.currentAnalyse || null; };
 
-// --- Rafraîchissement d'UI "safe" (ne fait rien si le projet est fermée)
-App.util.safeUIRefresh = function safeUIRefresh(){
-  const CA = App.util.getCA();
-  if (!CA) return;
-  try {
-    App.form?.refreshProgressUI?.();
-    if (App.util?.showMissingOnly) {
-      const { pct, filled, total } = computeProgress(CA);
-      updateCompletionBannerUI(pct, filled, total);
-    }
-  } catch { /* no-op */ }
-};
+  // --- Rafraîchissement d'UI "safe" (ne fait rien si le projet est fermé)
+  App.util.safeUIRefresh = function safeUIRefresh(){
+    const CA = App.util.getCA();
+    if (!CA) return;
+    try {
+      App.form?.refreshProgressUI?.();
+      if (App.util?.showMissingOnly) {
+        const { pct, filled, total } = computeProgress(CA);
+        updateCompletionBannerUI(pct, filled, total);
+      }
+    } catch { /* no-op */ }
+  };
+
   App._ready = App._ready || {};
   App._ready.model = true;
 })();
