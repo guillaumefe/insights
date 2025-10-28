@@ -6077,8 +6077,12 @@ function renderList() {
     
               const stepFoot = el('div', { class:'proc-step muted' }, { children:[ `Étape ${localPage + 1} / ${totalPages}` ] });
               body.append(stepFoot);
+              setLockedUI(isLocked());
             };
     
+            lockBtn.textContent = isLocked() ? 'Déverrouiller' : 'Verrouiller';
+            setLockedUI(isLocked());
+            
             rerenderProcess();
             wrap.append(panel);
           });
