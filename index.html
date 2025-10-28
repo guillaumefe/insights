@@ -1171,6 +1171,26 @@ body.preview-open #progressInfo { display: none !important; }
   max-width: 100%;
 }
 
+/* ===== Séparateurs horizontaux entre questions ===== */
+
+/* On ajoute une ligne fine sous chaque .kv (question), sauf la dernière */
+.proc-panel .proc-body .section > .kv > .kv {
+  border-bottom: 1px solid rgba(0,0,0,0.08); /* ligne horizontale élégante */
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+}
+
+/* Dernier champ = pas de ligne de séparation */
+.proc-panel .proc-body .section > .kv > .kv:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+/* Thème sombre : ajustement de la couleur */
+[data-theme="dark"] .proc-panel .proc-body .section > .kv > .kv {
+  border-bottom-color: rgba(255,255,255,0.08);
+}
 </style>
 
 
