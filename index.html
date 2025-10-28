@@ -2464,8 +2464,7 @@ function autoFixTemplateCollisions(inputTpl){
   // fabrique l’index des clés "ROW" pour une section non répétable
   const rowKeysOf = (section) => collectRowKeysForNonRepeatableSection(section);
 
-  const applyOnSections = (sections, procLabel = '') => {
-    const globalRowKeys = new Set(); // clés déjà occupées (entre sections non répétables)
+  const applyOnSections = (sections, procLabel = '', globalRowKeys) => {
     const changes = [];
 
     sections.forEach((section, sidx) => {
@@ -2486,8 +2485,7 @@ function autoFixTemplateCollisions(inputTpl){
             const base = old.replace(/^__grp__+/, 'grp_');
             const nn = nextFree(base, localTaken);
             e.group.name = nn;
-            localTaken.add(`__grp__${nn}`); // la clé ROW de conteneur n’est créée que si repeatable,
-            // mais on garde la cohérence si jamais le groupe devient repeatable plus tard
+            localTaken.add(`__grp__${nn}`); 
             changes.push({ kind:'group', from: old, to: nn, section: section.title, proc: procLabel });
           }
         } else if (e && isReservedFieldName(e.name)) {
@@ -2589,14 +2587,16 @@ function autoFixTemplateCollisions(inputTpl){
 
   // 1) format historique: sections[]
   if (Array.isArray(tpl) && tpl.every(s => s && typeof s==='object' && Array.isArray(s.fields))) {
-    changesAll.push(...applyOnSections(tpl, 'mono'));
+    const globalAll = new Set();
+    changesAll.push(...applyOnSections(tpl, 'mono', globalAll));
     return { fixed: tpl, changes: changesAll };
   }
 
   // 2) format processes[]
   if (Array.isArray(tpl) && tpl.every(p => p && typeof p==='object' && Array.isArray(p.sections))) {
+    const globalAll = new Set(); // partagé entre TOUS les process importés
     tpl.forEach((proc, idx) => {
-      changesAll.push(...applyOnSections(proc.sections, proc.name || `proc ${idx+1}`));
+      changesAll.push(...applyOnSections(proc.sections, proc.name || `proc ${idx+1}`, globalAll));
     });
     return { fixed: tpl, changes: changesAll };
   }
@@ -2604,6 +2604,7 @@ function autoFixTemplateCollisions(inputTpl){
   // autre forme: on renvoie tel quel
   return { fixed: tpl, changes: changesAll };
 }
+
 
 function setTemplate(newTemplate){
   const ok = validateTemplate(newTemplate);
