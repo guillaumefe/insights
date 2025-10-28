@@ -1252,6 +1252,19 @@ body.preview-open #progressInfo { display: none !important; }
 #leftPane {
   overflow: visible !important;
 }
+
+/* Liste des projets est vide */
+.item.empty-state{
+  border-style: dashed;
+  background: color-mix(in oklab, var(--card) 96%, transparent);
+  justify-content: center;
+}
+.item.empty-state .title{
+  font-weight: 800;
+}
+.item.empty-state .sub{
+  color: var(--muted);
+}
 </style>
 
 </head>
@@ -3731,6 +3744,23 @@ function setRawForData(obj, name, raw) {
     const info = document.getElementById('searchInfo');
     if (info) info.textContent = tokens.length ? `${matched.length} résultat(s)` : 'Entrez des mots-clés dans le champ recherche...';
 
+    if (matched.length === 0) {
+       const card = document.createElement('div');
+       card.className = 'item empty-state';
+       card.setAttribute('role','note');
+       card.innerHTML = `
+         <div class="meta">
+           <div class="title">✨ Aucun projet</div>
+           <div class="sub">Créez votre premier projet pour commencer</div>
+         </div>
+       `;
+       list.appendChild(card);
+   
+       // rien d'autre à lister → placeholder de droite + sortie
+       updatePlaceholder(); // (panneau droit)
+       return;
+    }
+     
 matched.forEach(enq=>{
   const per = (App.form?.computeProgressByProcess?.(enq) || []);
   const isMulti = Array.isArray(per) && per.length > 0;
