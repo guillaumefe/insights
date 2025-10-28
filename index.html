@@ -1072,6 +1072,105 @@ body.preview-open #progressInfo { display: none !important; }
 .table-like .td { overflow: visible; }
 #glossaryCloseBtn { margin-left: auto; }
 
+/* ===================== Procès → Sections → Champs ===================== */
+/* Portée stricte : uniquement dans les sections à l’intérieur des processus */
+.proc-panel .proc-body .section {
+  /* rien, sert juste de scope */
+}
+
+/* 1) Séparateurs verticaux entre champs d’une même ligne (.row flex) */
+.proc-panel .proc-body .section .row > * {
+  position: relative;
+  padding-right: 12px;
+  margin-right: 12px;
+  border-right: 1px solid var(--border);
+}
+.proc-panel .proc-body .section .row > *:last-child {
+  border-right: 0;
+  padding-right: 0;
+  margin-right: 0;
+}
+
+/* 2) Petits contrôles = tout sauf input “texte-like” et textarea
+      → ne s’étirent pas et restent alignés à gauche */
+.proc-panel .proc-body .section .kv
+  :is(
+    /* tous les input SAUF ceux de type texte-like */
+    input:not(
+      [type="text" i],
+      [type="search" i],
+      [type="email" i],
+      [type="url" i],
+      [type="tel" i],
+      [type="password" i],
+      [type="number" i]
+    ),
+    /* sélecteurs simples */
+    select:not([multiple]),
+    /* autres contrôles usuels */
+    button, input[type="button" i], input[type="submit" i]
+  ) {
+  width: auto !important;     /* clé : annule les width:100% globaux */
+  inline-size: auto !important;
+  max-width: 100%;
+  flex: 0 0 auto;             /* ne s’étire pas dans les .row */
+  justify-self: start;        /* reste à gauche en grid (.kv) */
+}
+
+/* 2bis) Les champs “texte-like” et textarea conservent le plein largeur */
+.proc-panel .proc-body .section .kv
+  :is(
+    input[type="text" i],
+    input[type="search" i],
+    input[type="email" i],
+    input[type="url" i],
+    input[type="tel" i],
+    input[type="password" i],
+    input[type="number" i],
+    textarea,
+    select[multiple]
+  ) {
+  width: 100%;
+}
+
+/* 3) Petits champs texte ponctuels que tu veux *non étirés* → ajoute .fit */
+.proc-panel .proc-body .section .kv .fit {
+  width: auto !important;
+  inline-size: auto !important;
+  flex: 0 0 auto;
+  justify-self: start;
+}
+
+/* 4) Mobile : on enlève les barres pour l’air */
+@media (max-width: 860px) {
+  .proc-panel .proc-body .section .row > * {
+    border-right: 0;
+    margin-right: 0;
+    padding-right: 0;
+  }
+}
+
+/* 0) (sécurité) S'assurer que les calculs incluent padding/border */
+.proc-panel, .proc-panel * { box-sizing: border-box; }
+
+/* 1) Les .kv enfants doivent pouvoir rétrécir dans le flex */
+.proc-panel .proc-body .section > .kv > .kv {
+  min-width: 0; /* clé contre le débordement en flex */
+}
+
+/* 2) Autoriser la césure des textes longs (URLs, mots collés) */
+.proc-panel .proc-body .section > .kv > .kv :is(
+  .tip-body, .muted, p, span, label, div
+) {
+  overflow-wrap: anywhere;     /* casse même au milieu si nécessaire */
+  word-break: break-word;      /* compat Safari/anciens moteurs */
+}
+
+/* 3) S'assurer que les contrôles ne dépassent jamais */
+.proc-panel .proc-body .section > .kv > .kv :is(input, select, textarea, button, .file-input) {
+  max-width: 100%;
+}
+
 </style>
 
 
