@@ -2216,42 +2216,224 @@ async function importEncryptedBundleFromFile(file) {
     return null;
   }
 
-  function validateTemplate(tpl){
-    // 1) format historique: tableau de sections
-    if (isSectionsArray(tpl)) {
-      for (let i=0;i<tpl.length;i++){
-        const s = tpl[i];
-        if ('fields' in s && !Array.isArray(s.fields)) return { valid:false, reason:`section[${i}].fields doit être un tableau` };
+   // Renvoie les clés effectivement écrites dans ROW pour une section NON répétable
+function collectRowKeysForNonRepeatableSection(section) {
+  const keys = new Set();
+  const groupNamesInSection = new Set(); // pour détecter deux groupes au même nom (collision de __grp__)
+
+  (section.fields || []).forEach(entry => {
+    if (entry && entry.group && Array.isArray(entry.fields)) {
+      const g = entry.group;
+      if (g.repeatable) {
+        // clé de conteneur du groupe répété
+        const GKEY = `__grp__${g.name}`;
+        if (groupNamesInSection.has(g.name)) {
+          keys.add(`__DUP_GRP__${GKEY}`); // marqueur pour signaler duplicata de groupe dans la section
+        }
+        groupNamesInSection.add(g.name);
+        keys.add(GKEY);
+      } else {
+        // groupe simple : ses sous-champs sont écrits directement dans ROW
+        for (const sf of entry.fields) {
+          if (!sf) continue;
+          keys.add(sf.name);
+        }
+      }
+    } else if (entry) {
+      // champ simple ou répétable : écrit dans ROW[entry.name]
+      keys.add(entry.name);
+    }
+  });
+
+  return keys;
+}
+
+// Vrai si le nom de champ est réservé (entrerait en conflit avec __grp__)
+function isReservedFieldName(name) {
+  return typeof name === 'string' && /^__grp__/.test(name);
+}
+
+function validateTemplate(tpl){
+  // Helpers locaux (pas de pollution globale)
+  const isReservedFieldName = (name) => typeof name === 'string' && /^__grp__/.test(name);
+
+  const eachField = (section, fn) => {
+    for (const e of (section.fields || [])) {
+      if (e && e.group && Array.isArray(e.fields)) {
+        for (const f of e.fields) fn(f, e.group);
+      } else if (e) {
+        fn(e, null);
+      }
+    }
+  };
+
+  // Les clés réellement écrites dans ROW pour une section NON répétable
+  const collectRowKeysForNonRepeatableSection = (section) => {
+    const keys = new Set();
+    const groupNamesInSection = new Set(); // pour collision de noms de groupes
+
+    (section.fields || []).forEach(entry => {
+      if (entry && entry.group && Array.isArray(entry.fields)) {
+        const g = entry.group;
+        if (g.repeatable) {
+          // clé du container de groupe répété
+          const GKEY = `__grp__${g.name}`;
+          if (groupNamesInSection.has(g.name)) {
+            // on encode un marqueur d'erreur pour signaler le doublon de groupe
+            keys.add(`__DUP_GRP__${GKEY}`);
+          }
+          groupNamesInSection.add(g.name);
+          keys.add(GKEY);
+        } else {
+          // groupe simple : ses sous-champs vont directement dans ROW
+          for (const sf of entry.fields) {
+            if (!sf) continue;
+            keys.add(sf.name);
+          }
+        }
+      } else if (entry) {
+        keys.add(entry.name); // champ simple ou répété
+      }
+    });
+
+    return keys;
+  };
+
+  // Vérifs locales à une section (réservés + doublons internes)
+  const validateSectionLocal = (section, sectionTitle) => {
+    const seenLocal = new Set();
+    const seenGroups = new Set(); // pour groupes répétés au même nom
+
+    for (const e of (section.fields || [])) {
+      if (e && e.group && Array.isArray(e.fields)) {
+        const g = e.group;
+
+        if (g.repeatable) {
+          // collision de noms de groupes répétés -> même __grp__ clé
+          if (seenGroups.has(g.name)) {
+            return `[${sectionTitle}] Deux groupes répétés portent le même nom "${g.name}" → collision sur "__grp__${g.name}".`;
+          }
+          seenGroups.add(g.name);
+        }
+
+        if (!g.repeatable) {
+          for (const sf of e.fields) {
+            if (!sf) continue;
+            if (isReservedFieldName(sf.name)) {
+              return `[${sectionTitle}] Le champ "${sf.name}" utilise le préfixe réservé "__grp__".`;
+            }
+            if (seenLocal.has(sf.name)) {
+              return `[${sectionTitle}] Doublon interne de champ "${sf.name}".`;
+            }
+            seenLocal.add(sf.name);
+          }
+        }
+      } else if (e) {
+        if (isReservedFieldName(e.name)) {
+          return `[${sectionTitle}] Le champ "${e.name}" utilise le préfixe réservé "__grp__".`;
+        }
+        if (seenLocal.has(e.name)) {
+          return `[${sectionTitle}] Doublon interne de champ "${e.name}".`;
+        }
+        seenLocal.add(e.name);
+      }
+    }
+    return null;
+  };
+
+  // --- 1) format historique: tableau de sections
+  if (isSectionsArray(tpl)) {
+    const globalRowKeys = new Map(); // clé ROW -> { index, title } (pour sections non répétables)
+
+    for (let i=0;i<tpl.length;i++){
+      const s = tpl[i];
+      const title = s?.title || `Section ${i+1}`;
+
+      if ('fields' in s && !Array.isArray(s.fields))
+        return { valid:false, reason:`section[${i}].fields doit être un tableau` };
+
+      if (Array.isArray(s.fields)){
+        for (let j=0;j<s.fields.length;j++){
+          const r = validateField(s.fields[j], i, j);
+          if (r) return { valid:false, reason:r };
+        }
+      }
+
+      // Vérifs supplémentaires (réservés + doublons internes)
+      const localErr = validateSectionLocal(s, title);
+      if (localErr) return { valid:false, reason: localErr };
+
+      // Optionnel : collision de clés entre sections NON répétables
+      if (!s?.repeatable) {
+        const rowKeys = collectRowKeysForNonRepeatableSection(s);
+        for (const k of rowKeys) {
+          if (String(k).startsWith('__DUP_GRP__')) {
+            const gkey = k.replace('__DUP_GRP__','');
+            return { valid:false, reason:`[${title}] Deux groupes partagent le même nom → collision sur "${gkey}".` };
+          }
+          if (globalRowKeys.has(k)) {
+            const prev = globalRowKeys.get(k);
+            return {
+              valid:false,
+              reason: `Clé "${k}" réutilisée entre sections NON répétables : "${prev.title}" (index ${prev.index}) et "${title}" (index ${i}). Renomme un des champs/groupes.`
+            };
+          }
+          globalRowKeys.set(k, { index:i, title });
+        }
+      }
+    }
+    return { valid:true, kind:'sections' };
+  }
+
+  // --- 2) nouveau format: tableau de processus { name, sections:[...] }
+  if (isProcessesArray(tpl)) {
+    const globalRowKeys = new Map(); // même garde-fou, côté processes
+
+    for (let p=0;p<tpl.length;p++){
+      const proc = tpl[p];
+      for (let i=0;i<proc.sections.length;i++){
+        const s = proc.sections[i];
+        const title = s?.title || `Section ${i+1} (proc ${proc?.name ?? p+1})`;
+
+        if ('fields' in s && !Array.isArray(s.fields))
+          return { valid:false, reason:`processus[${p}].sections[${i}].fields doit être un tableau` };
+
         if (Array.isArray(s.fields)){
           for (let j=0;j<s.fields.length;j++){
-            const r = validateField(s.fields[j], i, j);
+            const r = validateField(s.fields[j], `${p}/${i}`, j);
             if (r) return { valid:false, reason:r };
           }
         }
-      }
-      return { valid:true, kind:'sections' };
-    }
 
-    // 2) nouveau format: tableau de processus { name, sections:[...] }
-    if (isProcessesArray(tpl)) {
-      for (let p=0;p<tpl.length;p++){
-        const proc = tpl[p];
-        for (let i=0;i<proc.sections.length;i++){
-          const s = proc.sections[i];
-          if ('fields' in s && !Array.isArray(s.fields)) return { valid:false, reason:`processus[${p}].sections[${i}].fields doit être un tableau` };
-          if (Array.isArray(s.fields)){
-            for (let j=0;j<s.fields.length;j++){
-              const r = validateField(s.fields[j], `${p}/${i}`, j);
-              if (r) return { valid:false, reason:r };
+        // Vérifs supplémentaires (réservés + doublons internes)
+        const localErr = validateSectionLocal(s, title);
+        if (localErr) return { valid:false, reason: localErr };
+
+        // Optionnel : collision de clés entre sections NON répétables
+        if (!s?.repeatable) {
+          const rowKeys = collectRowKeysForNonRepeatableSection(s);
+          for (const k of rowKeys) {
+            if (String(k).startsWith('__DUP_GRP__')) {
+              const gkey = k.replace('__DUP_GRP__','');
+              return { valid:false, reason:`[${title}] Deux groupes partagent le même nom → collision sur "${gkey}".` };
             }
+            if (globalRowKeys.has(k)) {
+              const prev = globalRowKeys.get(k);
+              return {
+                valid:false,
+                reason: `Clé "${k}" réutilisée entre sections NON répétables : "${prev.title}" (proc ${prev.p}, idx ${prev.i}) et "${title}" (proc ${p}, idx ${i}). Renomme un des champs/groupes.`
+              };
+            }
+            globalRowKeys.set(k, { p, i, title });
           }
         }
       }
-      return { valid:true, kind:'processes' };
     }
-
-    return { valid:false, reason:'racine ni "sections[]" ni "processes[]"' };
+    return { valid:true, kind:'processes' };
   }
+
+  return { valid:false, reason:'racine ni "sections[]" ni "processes[]"' };
+}
 
   function setTemplate(newTemplate){
     const ok = validateTemplate(newTemplate);
@@ -3924,7 +4106,6 @@ function saveLS(){
   };
 
   // -------- Progression par process (sections simples, répétables, groupes rép., champs rép. imbriqués)
-// -------- Progression par process — version "1 champ = 1 point"
 function computeProgressByProcess(project){
   const A = project || App.state?.currentAnalyse || {};
   const DATA = A?.data || {};
@@ -3938,7 +4119,7 @@ function computeProgressByProcess(project){
 
   // test "rempli" centralisé (aligne sur la logique existante)
   const isFilled = (f, v) => {
-    if (App.util?.isFilled) return App.util.isFilled(f, v); // logique native (checkbox/date/number/file) :contentReference[oaicite:2]{index=2}
+    if (App.util?.isFilled) return App.util.isFilled(f, v); // logique native (checkbox/date/number/file)
     // fallback ultra-sécurisé
     if (f?.type === 'checkbox') return v === true;
     if (f?.type === 'date')     return !!App.util?.parseDateStrict?.(v);
@@ -3960,14 +4141,14 @@ function computeProgressByProcess(project){
     return out;
   };
 
-  // lit les occurrences d’un groupe répété dans un *item* (section rép.) ou dans DATA (section non rép.)
+  // lit les occurrences d’un groupe répété dans un *item* (section rép.) ou dans un container passé (ROW ou DATA)
   const readGroupOccs = (group, container) => {
-    const GKEY = `__grp__${group.name}`; // convention de stockage pour groupes répétés :contentReference[oaicite:3]{index=3} :contentReference[oaicite:4]{index=4}
+    const GKEY = `__grp__${group.name}`; // convention de stockage pour groupes répétés
     const arr = Array.isArray(container?.[GKEY]) ? container[GKEY] : [];
     return arr;
   };
 
-  // retourne true si le champ est rempli *au moins une fois* dans un container (item de section ou DATA)
+  // retourne true si le champ est rempli *au moins une fois* dans un container (item de section, ROW ou DATA)
   const fieldFilledSomewhere = (fd, container) => {
     if (!fd) return false;
     if (fd.repeatable) {
@@ -4001,12 +4182,12 @@ function computeProgressByProcess(project){
             const occs = items.flatMap(item => readGroupOccs(group, item));
             total  += occs.length;
             filled += occs.filter(obj => fieldFilledSomewhere(fd, obj)).length;
-        
+
           } else if (group && !group.repeatable) {
             // groupe simple dans section rép.
             total  += items.length;
             filled += items.filter(item => fieldFilledSomewhere(fd, item)).length;
-        
+
           } else if (fd.repeatable) {
             // champ répété (liste) dans section rép.
             for (const item of items) {
@@ -4019,51 +4200,55 @@ function computeProgressByProcess(project){
                 if (isFilled(fd, vv)) filled += 1;
               });
             }
-        
+
           } else {
             // champ simple dans section rép.
             total  += items.length;
             filled += items.filter(item => fieldFilledSomewhere(fd, item)).length;
           }
-        
+
           if (DEBUG_TRACE) trace.push({ section: section.title || `S${sidx+1}`, field: fd.name, from: 'rep-section' });
         });
 
-
       } else {
-const items = readSectionArray(section, sidx); //
-leafs.forEach(({ field: fd, group }) => {
-  if (group && group.repeatable) {
-    // groupe répété HORS section rép.
-    const occs = readGroupOccs(group, DATA);
-    total  += occs.length;
-    filled += occs.filter(obj => fieldFilledSomewhere(fd, obj)).length;
+        // ====== PATCH: brancher sur un namespace de section (ROW) au lieu de DATA (racine) ======
+        const sectionKey = sectionKeyOf(section, sidx);
+        const ROW = (DATA?.[sectionKey]) || {};
+        // (Optionnel) on conserve l'appel pour symétrie/évolutivité, même s'il n'est pas utilisé ici :
+        // const items = readSectionArray(section, sidx);
 
-  } else if (fd.repeatable) {
-    // champ répété (liste) à la racine
-    const arr = Array.isArray(DATA?.[fd.name]) ? DATA[fd.name] : [];
-    total += arr.length;
-    const rawIdx = Array.isArray(DATA?.[fd.name + '__raw_idx']) ? DATA[fd.name + '__raw_idx'] : null;
-    arr.forEach((v, i) => {
-      const vv = (fd.type === 'date' && rawIdx) ? (rawIdx[i] ?? v) : v;
-      if (isFilled(fd, vv)) filled += 1;
-    });
+        leafs.forEach(({ field: fd, group }) => {
+          if (group && group.repeatable) {
+            // groupe répété HORS section rép. => lire dans ROW
+            const occs = readGroupOccs(group, ROW);
+            total  += occs.length;
+            filled += occs.filter(obj => fieldFilledSomewhere(fd, obj)).length;
 
-  } else {
-    // champ simple (une seule occurrence visible)
-    total += 1;
-    if (fd.type === 'date') {
-      const raw = DATA?.[fd.name + '__raw'];
-      const vv  = raw ?? DATA?.[fd.name];
-      if (isFilled(fd, vv)) filled += 1;
-    } else {
-      if (fieldFilledSomewhere(fd, DATA)) filled += 1;
-    }
-  }
+          } else if (fd.repeatable) {
+            // champ répété (liste) namespacé dans ROW
+            const arr = Array.isArray(ROW?.[fd.name]) ? ROW[fd.name] : [];
+            total += arr.length;
+            const rawIdx = Array.isArray(ROW?.[fd.name + '__raw_idx']) ? ROW[fd.name + '__raw_idx'] : null;
+            arr.forEach((v, i) => {
+              const vv = (fd.type === 'date' && rawIdx) ? (rawIdx[i] ?? v) : v;
+              if (isFilled(fd, vv)) filled += 1;
+            });
 
-  if (DEBUG_TRACE) trace.push({ section: section.title || `S${sidx+1}`, field: fd.name, from: 'mono-section' });
-});
+          } else {
+            // champ simple namespacé dans ROW (une seule occurrence visible)
+            total += 1;
+            if (fd.type === 'date') {
+              const raw = ROW?.[fd.name + '__raw'];
+              const vv  = raw ?? ROW?.[fd.name];
+              if (isFilled(fd, vv)) filled += 1;
+            } else {
+              if (fieldFilledSomewhere(fd, ROW)) filled += 1;
+            }
+          }
 
+          if (DEBUG_TRACE) trace.push({ section: section.title || `S${sidx+1}`, field: fd.name, from: 'mono-section' });
+        });
+        // ====== /PATCH ======
       }
     });
 
@@ -4075,7 +4260,6 @@ leafs.forEach(({ field: fd, group }) => {
     return { pct, filled, total, pidx, name: proc?.name || `Processus ${pidx+1}` };
   });
 }
-
 
 function updateCompletionBannerUI(pct=0, filled=0, total=0){
   const banner = document.querySelector('.completion-banner');
@@ -4133,77 +4317,80 @@ function refreshProgressUI(){
   // -------- Snapshot des champs manquants (global multi-process)
   let FILTER_SNAPSHOT = null;
   function buildFilterSnapshot(project){
-    const snap = { header:{}, sections:{} };
+  const snap = { header:{}, sections:{} };
 
-    const missH = headerMissing(project);
-    snap.header.title = missH.includes('title');
-    snap.header.date  = missH.includes('date');
+  const missH = headerMissing(project);
+  snap.header.title = missH.includes('title');
+  snap.header.date  = missH.includes('date');
 
-    const eachField = (section, fn) => {
-      for (const e of (section.fields || [])) {
-        if (e && e.group && Array.isArray(e.fields)) {
-          for (const f of e.fields) fn(f, /*group*/ e.group);
+  const eachField = (section, fn) => {
+    for (const e of (section.fields || [])) {
+      if (e && e.group && Array.isArray(e.fields)) {
+        for (const f of e.fields) fn(f, /*group*/ e.group);
+      } else {
+        fn(e, null);
+      }
+    }
+  };
+
+  const ALL_SECTIONS = (() => {
+    const PRO = App?.model?.PROCESSES;
+    if (Array.isArray(PRO) && PRO.length){
+      return PRO.flatMap(p => p.sections || []);
+    }
+    return App?.model?.TEMPLATE || [];
+  })();
+
+  ALL_SECTIONS.forEach((section, sidx)=>{
+    const key = App.model.sectionKeyOf(section, sidx);
+    const S = snap.sections[key] = { repeatable: !!section.repeatable };
+
+    if (!section.repeatable){
+      // ===== PATCH: utiliser le namespace de section =====
+      const ROW = project?.data?.[key] || {};
+      S.simple  = new Set();
+      S.repeats = {};
+      eachField(section, (f)=>{
+        if (f.repeatable){
+          const arr = Array.isArray(ROW?.[f.name]) ? ROW[f.name] : [];
+          const set = new Set();
+          arr.forEach((v,i)=>{
+            const val = normMissing(f, v);
+            if (App.util.fieldIsMissingSimple(f, val)) set.add(i);
+          });
+          S.repeats[f.name] = set;
         } else {
-          fn(e, null);
+          const val = normMissing(f, ROW?.[f.name]);
+          if (App.util.fieldIsMissingSimple(f, val)) S.simple.add(f.name);
         }
-      }
-    };
-
-    const ALL_SECTIONS = (() => {
-      const PRO = App?.model?.PROCESSES;
-      if (Array.isArray(PRO) && PRO.length){
-        return PRO.flatMap(p => p.sections || []);
-      }
-      return App?.model?.TEMPLATE || [];
-    })();
-
-    ALL_SECTIONS.forEach((section, sidx)=>{
-      const key = App.model.sectionKeyOf(section, sidx);
-      const S = snap.sections[key] = { repeatable: !!section.repeatable };
-
-      if (!section.repeatable){
-        S.simple = new Set();
-        S.repeats = {};
+      });
+      // ===== /PATCH =====
+    } else {
+      const items = Array.isArray(project.data?.[key]) ? project.data[key] : [];
+      S.blocks = {};
+      items.forEach((item, i)=>{
+        const b = { simple:new Set(), repeats:{} };
         eachField(section, (f)=>{
           if (f.repeatable){
-            const arr = Array.isArray(project.data?.[f.name]) ? project.data[f.name] : [];
+            const a = Array.isArray(item?.[f.name]) ? item[f.name] : [];
             const set = new Set();
-            arr.forEach((v,i)=>{
+            a.forEach((v,idx)=>{
               const val = normMissing(f, v);
-              if (App.util.fieldIsMissingSimple(f, val)) set.add(i);
+              if (App.util.fieldIsMissingSimple(f, val)) set.add(idx);
             });
-            S.repeats[f.name] = set;
+            b.repeats[f.name] = set;
           } else {
-            const val = normMissing(f, (project.data||{})[f.name]);
-            if (App.util.fieldIsMissingSimple(f, val)) S.simple.add(f.name);
+            const val = normMissing(f, item?.[f.name]);
+            if (App.util.fieldIsMissingSimple(f, val)) b.simple.add(f.name);
           }
         });
-      } else {
-        const items = Array.isArray(project.data?.[key]) ? project.data[key] : [];
-        S.blocks = {};
-        items.forEach((item, i)=>{
-          const b = { simple:new Set(), repeats:{} };
-          eachField(section, (f)=>{
-            if (f.repeatable){
-              const a = Array.isArray(item?.[f.name]) ? item[f.name] : [];
-              const set = new Set();
-              a.forEach((v,idx)=>{
-                const val = normMissing(f, v);
-                if (App.util.fieldIsMissingSimple(f, val)) set.add(idx);
-              });
-              b.repeats[f.name] = set;
-            } else {
-              const val = normMissing(f, item?.[f.name]);
-              if (App.util.fieldIsMissingSimple(f, val)) b.simple.add(f.name);
-            }
-          });
-          if (b.simple.size || Object.values(b.repeats).some(set=>set.size>0)) S.blocks[i] = b;
-        });
-      }
-    });
+        if (b.simple.size || Object.values(b.repeats).some(set=>set.size>0)) S.blocks[i] = b;
+      });
+    }
+  });
 
-    return snap;
-  }
+  return snap;
+}
 
   // -------- Nettoyage des champs vides dans un bloc
   function pruneItemFieldIfEmpty(field, itemObj, dataRoot, itemIndex){
@@ -4441,7 +4628,7 @@ function refreshProgressUI(){
     const items = getItems();
 
     const addBlock = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter un bloc'] });
-    addBlock.addEventListener('click', async () => { items.push({}); await persist(); App.form.renderForm(); });
+    addBlock.addEventListener('click', async () => { items.push({}); await persist(); App.form?.renderForm?.(); });
 
     items.forEach((item, idx) => {
       const block = el('div', { class:'repeatable-item' });
@@ -4454,12 +4641,12 @@ function refreshProgressUI(){
 
       dup.addEventListener('click', async () => {
         items.splice(idx+1, 0, structuredClone(items[idx] || {}));
-        await persist(); App.form.renderForm();
+        await persist(); App.form?.renderForm?.();
       });
       rm.addEventListener('click', async () => {
         if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return;
         items.splice(idx, 1);
-        await persist(); App.form.renderForm();
+        await persist(); App.form?.renderForm?.();
       });
 
       (section.fields || []).forEach(entry => {
@@ -4484,11 +4671,11 @@ function refreshProgressUI(){
               const rm2  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
               tag2.append(dup2, rm2);
               dup2.addEventListener('click', async () => {
-                item[GKEY].splice(i+1, 0, structuredClone(obj)); await persist(); App.form.renderForm();
+                item[GKEY].splice(i+1, 0, structuredClone(obj)); await persist(); App.form?.renderForm?.();
               });
               rm2.addEventListener('click', async () => {
                 if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return;
-                item[GKEY].splice(i, 1); await persist(); App.form.renderForm();
+                item[GKEY].splice(i, 1); await persist(); App.form?.renderForm?.();
               });
 
               (entry.fields || []).forEach(sf => {
@@ -4520,7 +4707,7 @@ function refreshProgressUI(){
             item[GKEY].forEach((_, i) => list.append(renderOcc(i)));
 
             const add = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
-            add.addEventListener('click', async () => { item[GKEY].push({}); await persist(); App.form.renderForm(); });
+            add.addEventListener('click', async () => { item[GKEY].push({}); await persist(); App.form?.renderForm?.(); });
 
             row.append(lab, el('div', {}, { children:[list, add] }));
             inner.append(row);
@@ -4790,7 +4977,7 @@ function renderForm(){
       App.util.showMissingOnly = !App.util.showMissingOnly;
       window.FILTER_SNAPSHOT = App.util.showMissingOnly ? buildFilterSnapshot(App.state.currentAnalyse) : null;
       saveLS();
-      App.form.renderForm();
+      App.form?.renderForm?.();
     };
     if (!bar.contains(btn)) bar.append(btn);
     if (!host.querySelector('#missingToggleBar')) host.prepend(bar);
@@ -5214,9 +5401,10 @@ function renderOneSection(targetHost, section, sidx){
     return;
   }
 
-  // ---------- Section NON répétable ----------
+    // ---------- Section NON répétable ----------
   const kv = el('div', { class:'kv' });
   const DATA = (App.state.currentAnalyse.data ||= {});
+  const ROW  = (DATA[sectionKey] ||= {}); // <<< NAMESPACE DE SECTION
 
   (section.fields||[]).forEach(f=>{
     // ----- GROUPE
@@ -5225,16 +5413,16 @@ function renderOneSection(targetHost, section, sidx){
 
       if (g.repeatable) {
         const KEY = `__grp__${g.name}`;
-        if (!Array.isArray(DATA[KEY])) DATA[KEY] = [];
+        if (!Array.isArray(ROW[KEY])) ROW[KEY] = [];
 
         const lab  = el('label', {}, { children:[ g.label || g.name ] });
         const list = el('div', { class:'repeatable' });
 
         const renderOcc = (i) => {
-          const obj = DATA[KEY][i] || (DATA[KEY][i] = {});
+          const obj = ROW[KEY][i] || (ROW[KEY][i] = {});
           if (App.util?.showMissingOnly && !groupOccHasMissing(f, obj)) return null;
 
-          const item = el('div', { class:'repeatable-item' });
+          const item  = el('div', { class:'repeatable-item' });
           const iwrap = el('div', { class:'input-wrap' });
 
           const tag = el('div', { class:'mini-tags' });
@@ -5242,13 +5430,13 @@ function renderOneSection(targetHost, section, sidx){
           const rm  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
           tag.append(dup, rm);
 
-          dup.addEventListener('click', async ()=>{ DATA[KEY].push(structuredClone(obj)); await persist(); App.form?.renderForm?.(); });
-          rm.addEventListener('click', async ()=>{ if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return; DATA[KEY].splice(i,1); await persist(); App.form?.renderForm?.(); });
+          dup.addEventListener('click', async ()=>{ ROW[KEY].push(structuredClone(obj)); await persist(); App.form?.renderForm?.(); });
+          rm.addEventListener('click', async ()=>{ if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return; ROW[KEY].splice(i,1); await persist(); App.form?.renderForm?.(); });
 
           (f.fields || []).forEach(sf => {
             if (sf.repeatable) {
               if (!Array.isArray(obj[sf.name])) obj[sf.name] = [];
-              const all = obj[sf.name];
+              const all  = obj[sf.name];
               const idxs = App.util?.showMissingOnly
                 ? all.map((v,k)=> isMissingValue(sf,v) ? k : -1).filter(k=>k>=0)
                 : all.map((_,k)=>k);
@@ -5258,10 +5446,11 @@ function renderOneSection(targetHost, section, sidx){
               const list = el('div', { class:'repeatable-items' });
               const getArr = () => obj[sf.name];
               const setArr = (a) => { obj[sf.name] = a; };
+
               const renderRow = buildRenderRow({
                 field: sf, getArr, setArr,
                 idxToRow: () => obj,
-                uidBase: `__grp__${g.name}__${sf.name}__i${i}`
+                uidBase: `${sectionKey}__grp_${g.name}__${sf.name}__i${i}` // uid + sectionKey
               });
 
               idxs.forEach(k => list.append(renderRow(k)));
@@ -5303,9 +5492,10 @@ function renderOneSection(targetHost, section, sidx){
                 await persist();
               },
               null,
-              { row: obj, uid:`__grp__${g.name}__${sf.name}__i${i}` }
+              { row: obj, uid:`${sectionKey}__grp_${g.name}__${sf.name}__i${i}` }
             );
             r.append(l, input);
+            attachTip(r, sf);
             iwrap.append(r);
           });
 
@@ -5313,12 +5503,11 @@ function renderOneSection(targetHost, section, sidx){
           return item;
         };
 
-        DATA[KEY].forEach((_, i) => {
+        ROW[KEY].forEach((_, i) => {
           const n = renderOcc(i);
           if (n) list.append(n);
         });
 
-        // ⬇️ si filtre actif et rien à afficher pour ce groupe → ne pas montrer label/bouton
         if (App.util?.showMissingOnly && !list.childElementCount) {
           return;
         }
@@ -5328,9 +5517,9 @@ function renderOneSection(targetHost, section, sidx){
         if (!App.util?.showMissingOnly) {
           const addGrp2 = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
           addGrp2.addEventListener('click', async () => {
-            DATA[KEY].push({});
+            ROW[KEY].push({});
             await persist();
-            App.form.renderForm();
+            App.form?.renderForm?.();
           });
           wrap.append(addGrp2);
         }
@@ -5341,26 +5530,26 @@ function renderOneSection(targetHost, section, sidx){
         return;
       }
 
-      // groupe simple (aplati)
+      // groupe simple (aplati) — stocké dans ROW
       const legend = el('label', { class:'group-legend' }, { children:[ g.label || g.name ] });
       const gWrap  = el('div', { class:'section group-wrap' });
       let painted = 0;
       (f.fields||[]).forEach(sf=>{
         const cur = (sf.type==='date')
-          ? (App.util?.getRawForData ? App.util.getRawForData(DATA, sf.name) : (DATA[sf.name] ?? ''))
-          : (DATA[sf.name] ?? (sf.type==='checkbox'?false:''));
+          ? (App.util?.getRawForData ? App.util.getRawForData(ROW, sf.name) : (ROW[sf.name] ?? ''))
+          : (ROW[sf.name] ?? (sf.type==='checkbox'?false:''));
         if (App.util?.showMissingOnly && !isMissingValue(sf, cur)) return;
         const r = el('div', { class:'kv' });
         const l = el('label', {}, { children:[ sf.label || sf.name ] });
         const input = renderInputForField(
           sf, cur,
           async v=>{
-            if (sf.type==='date' && App.util?.setRawForData) App.util.setRawForData(DATA, sf.name, v);
-            else DATA[sf.name] = v;
+            if (sf.type==='date' && App.util?.setRawForData) App.util.setRawForData(ROW, sf.name, v);
+            else ROW[sf.name] = v;
             await persist();
           },
           null,
-          { row: DATA, uid:`grp_${g.name}__${sf.name}` }
+          { row: ROW, uid:`${sectionKey}__grp_${g.name}__${sf.name}` }
         );
         r.append(l, input);
         attachTip(r, sf);
@@ -5375,10 +5564,10 @@ function renderOneSection(targetHost, section, sidx){
       return;
     }
 
-    // ----- CHAMP répétable
+    // ----- CHAMP répétable — stocké dans ROW
     if (f?.repeatable){
       const getArr = () => {
-        const a = Array.isArray(DATA[f.name]) ? DATA[f.name] : (DATA[f.name] = []);
+        const a = Array.isArray(ROW[f.name]) ? ROW[f.name] : (ROW[f.name] = []);
         return a;
       };
       const all = getArr();
@@ -5389,11 +5578,11 @@ function renderOneSection(targetHost, section, sidx){
       if (!idxs.length && App.util?.showMissingOnly) return;
 
       const list = el('div', { class:'repeatable-items' });
-      const setArr = (a)=>{ DATA[f.name] = a; };
+      const setArr = (a)=>{ ROW[f.name] = a; };
 
       const renderRow = buildRenderRow({
         field: f, getArr, setArr,
-        idxToRow: ()=> DATA,
+        idxToRow: ()=> ROW,
         uidBase: `${sectionKey}__${f.name}`
       });
 
@@ -5417,10 +5606,10 @@ function renderOneSection(targetHost, section, sidx){
       return;
     }
 
-    // ----- CHAMP simple
+    // ----- CHAMP simple — stocké dans ROW
     const cur = (f.type==='date')
-      ? (App.util?.getRawForData ? App.util.getRawForData(DATA, f.name) : (DATA[f.name] ?? ''))
-      : (DATA[f.name] ?? (f.type==='checkbox'?false:''));
+      ? (App.util?.getRawForData ? App.util.getRawForData(ROW, f.name) : (ROW[f.name] ?? ''))
+      : (ROW[f.name] ?? (f.type==='checkbox'?false:''));
     if (App.util?.showMissingOnly && !isMissingValue(f, cur)) return;
 
     const r = el('div', { class:'kv' });
@@ -5428,12 +5617,12 @@ function renderOneSection(targetHost, section, sidx){
     const input = renderInputForField(
       f, cur,
       async v=>{
-        if (f.type==='date' && App.util?.setRawForData) App.util.setRawForData(DATA, f.name, v);
-        else DATA[f.name] = v;
+        if (f.type==='date' && App.util?.setRawForData) App.util.setRawForData(ROW, f.name, v);
+        else ROW[f.name] = v;
         await persist();
       },
       null,
-      { row: DATA, uid:`${sectionKey}__${f.name}` }
+      { row: ROW, uid:`${sectionKey}__${f.name}` }
     );
     r.append(l, input);
     attachTip(r, f);
@@ -5442,6 +5631,7 @@ function renderOneSection(targetHost, section, sidx){
 
   sectionNode.append(kv);
   targetHost.append(sectionNode);
+  return;
 }
 
   // ========= Pager local réutilisable (pour chaque process) =========
@@ -7598,7 +7788,7 @@ async function exportZipAESCompat(){
       App.state.currentAnalyse = opened;
       App?.helpers?.savePageFor?.(opened.id, 0);
       App.uiList.openDetail();
-      App.form.renderForm();
+      App.form?.renderForm?.();
       App.files?.scanCurrentAnalyse?.();
 
       // Nettoyage des champs de création
