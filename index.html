@@ -1265,6 +1265,67 @@ body.preview-open #progressInfo { display: none !important; }
 .item.empty-state .sub{
   color: var(--muted);
 }
+
+/* GROUPES : la cellule "valeur" (colonne 2) ne s'étire pas et reste collée à gauche */
+.proc-panel .proc-body .section .group-wrap .kv {
+  justify-items: start;              /* par défaut, ne pas stretcher */
+}
+
+/* La cellule valeur elle-même (l'élément non-label) doit se placer à gauche */
+.proc-panel .proc-body .section .group-wrap .kv > :not(label) {
+  place-self: start;                 /* = align-self:start + justify-self:start */
+  width: auto;                       /* pas de stretch du wrapper */
+  max-width: 100%;
+}
+
+/* Si la valeur contient une ligne .row (flex), empêcher la répartition */
+.proc-panel .proc-body .section .group-wrap .kv > :not(label).row,
+.proc-panel .proc-body .section .group-wrap .kv > :not(label) .row {
+  justify-content: flex-start;       /* pas de space-between/around */
+}
+.proc-panel .proc-body .section .group-wrap .kv > :not(label) .row > * {
+  flex: 0 0 auto;                    /* les enfants ne s'étirent pas */
+}
+
+/* Petits contrôles (checkbox, radio, select simple, boutons) dans les groupes :
+   ne pas s'étirer, rester collés à gauche */
+.proc-panel .proc-body .section .group-wrap .kv > :not(label) :is(
+  input:not(
+    [type="text" i],
+    [type="search" i],
+    [type="email" i],
+    [type="url" i],
+    [type="tel" i],
+    [type="password" i],
+    [type="number" i]
+  ),
+  select:not([multiple]),
+  button,
+  input[type="button" i],
+  input[type="submit" i],
+  .btn
+) {
+  width: auto !important;
+  inline-size: auto !important;
+  max-width: 100%;
+  align-self: start;                  /* si placé dans une .row */
+  justify-self: start;                /* si direct enfant de la grid */
+}
+
+/* Les champs "texte-like" et textarea gardent le plein largeur (normal) */
+.proc-panel .proc-body .section .group-wrap .kv > :not(label) :is(
+  input[type="text" i],
+  input[type="search" i],
+  input[type="email" i],
+  input[type="url" i],
+  input[type="tel" i],
+  input[type="password" i],
+  input[type="number" i],
+  textarea,
+  select[multiple]
+) {
+  width: 100%;
+}
 </style>
 
 </head>
