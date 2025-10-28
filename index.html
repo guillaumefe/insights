@@ -1191,6 +1191,77 @@ body.preview-open #progressInfo { display: none !important; }
 [data-theme="dark"] .proc-panel .proc-body .section > .kv > .kv {
   border-bottom-color: rgba(255,255,255,0.08);
 }
+
+/* === Desktop: meilleure utilisation de l'espace vertical ================== */
+@media (min-width: 861px) {
+  html, body { height: 100%; }
+  body { min-height: 100vh; }
+
+  /* Layout principal sur toute la hauteur */
+  main.wrap.grid#app {
+    display: grid;
+    grid-template-columns: minmax(320px, 34vw) 6px 1fr; /* gauche | drag | droite */
+    grid-auto-rows: 1fr;
+    align-items: stretch;
+    height: 100vh;
+  }
+
+  /* Panneaux pleine hauteur */
+  .col-left,
+  .col-detail {
+    height: 100%;
+  }
+
+  /* Panneau gauche en colonne */
+  .col-left {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;              /* header fixe, liste scrollable */
+  }
+
+  /* Les zones hautes du panneau gauche ne s'étirent pas */
+  #leftPane h2,
+  #leftPane .row,
+  #leftPane .divider,
+  #searchSection {
+    flex: 0 0 auto;
+  }
+
+  /* Liste des projets qui s’étire et scrolle */
+  #projectList {
+    flex: 1 1 auto;
+    min-height: 0;                 /* permet au scroll de fonctionner */
+    overflow: auto;
+    padding-right: 6px;
+  }
+
+  /* Dragbar sur toute la hauteur */
+  .dragbar {
+    height: 100%;
+  }
+
+  /* Panneau droit : header fixe, contenu scrollable */
+  .col-detail#rightPane {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;              /* scroll géré plus bas */
+  }
+
+  /* Header / placeholder / info non scrollables */
+  #detailToolbar,
+  #placeholder,
+  #progressInfo {
+    flex: 0 0 auto;
+  }
+
+  /* Zone formulaire ET zone aperçu = scroll interne */
+  #formHost,
+  #previewWrap {
+    flex: 1 1 auto;
+    min-height: 0;                 /* nécessaire pour permettre le scroll */
+    overflow: auto;
+  }
+}
 </style>
 
 
