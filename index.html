@@ -5445,7 +5445,7 @@ function renderList() {
         (function renderMissingToggle(){
           const bar = document.getElementById('missingToggleBar') || el('div', { id:'missingToggleBar', class:'toolbar' });
           const btn = bar.querySelector('button') || el('button', { class:'btn sm ghost', type:'button' });
-          btn.textContent = App.util?.showMissingOnly ? 'Actif : manquants seulement' : 'Inactif : tout afficher';
+          btn.textContent = App.util?.showMissingOnly ? 'Filtre actif : manquants seulement' : 'Filtre inactif : tout afficher';
           btn.setAttribute('aria-pressed', App.util?.showMissingOnly ? 'true' : 'false');
           btn.onclick = () => {
             App.util.showMissingOnly = !App.util.showMissingOnly;
