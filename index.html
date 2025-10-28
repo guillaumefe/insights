@@ -2435,56 +2435,89 @@ function validateTemplate(tpl){
   return { valid:false, reason:'racine ni "sections[]" ni "processes[]"' };
 }
 
-  function setTemplate(newTemplate){
-    const ok = validateTemplate(newTemplate);
-    if (!ok.valid) throw new Error('Processus invalide : ' + ok.reason);
+function setTemplate(newTemplate){
+  const ok = validateTemplate(newTemplate);
+  if (!ok.valid) throw new Error('Processus invalide : ' + ok.reason);
 
-    if (ok.kind === 'sections') {
-      PROCESSES = null;                              // mode historique
-      TEMPLATE  = (typeof structuredClone === 'function')
-        ? structuredClone(newTemplate)
-        : deepClone(newTemplate);                    // ✅ deep clone
-      TEMPLATE_FIELD_DEFS = TEMPLATE.flatMap(sec => sec.fields || []);
-    } else { // kind === 'processes'
-      const cloneTpl = (typeof structuredClone === 'function')
-        ? structuredClone(newTemplate)
-        : deepClone(newTemplate);                    // ✅ deep clone
+  if (ok.kind === 'sections') {
+    PROCESSES = null;                              // mode historique
+    TEMPLATE  = (typeof structuredClone === 'function')
+      ? structuredClone(newTemplate)
+      : deepClone(newTemplate);                    // ✅ deep clone
+    TEMPLATE_FIELD_DEFS = TEMPLATE.flatMap(sec => sec.fields || []);
 
-      PROCESSES = cloneTpl;
-      // Expose la 1re colonne sans lien de référence :
-      TEMPLATE  = (typeof structuredClone === 'function')
-        ? structuredClone(PROCESSES[0]?.sections || [])
-        : deepClone(PROCESSES[0]?.sections || []);   // ✅ deep clone
-      // flat defs = concat de tous les champs de tous les processus
-      TEMPLATE_FIELD_DEFS = PROCESSES.flatMap(pr => (pr.sections||[]).flatMap(s => s.fields || []));
-    }
-
-    resetSectionKeyCache();
-    clampPage();
-
-    (async () => {
+    // NEW: en mode "sections" mono-process, taguer les sections avec un procKey "mono"
+    (TEMPLATE || []).forEach((s, sidx) => {
       try {
-        try { localStorage.removeItem('customTemplateJSON'); } catch {}
-        const key = App.crypto?.currentKey;
-        if (key && App.crypto?.aesEncryptJson && App.storage?.put) {
-          const payload = PROCESSES || TEMPLATE;
-          const envelope = await App.crypto.aesEncryptJson(key, payload);
-          await App.storage.put('ui', { id: 'customTemplate', value: envelope });
-        } else {
-          localStorage.setItem('customTemplateJSON', JSON.stringify(PROCESSES || TEMPLATE));
-        }
+        Object.defineProperty(s, '__procKey', { value: 'mono', enumerable: false });
+        Object.defineProperty(s, '__procIdx', { value: 0, enumerable: false });
+        Object.defineProperty(s, '__secIdx',   { value: sidx, enumerable: false });
       } catch {}
-    })();
+    });
 
-    try { App.uiList?.showToast?.('Processus chargé.', 2000, 'success'); } catch(_){}
-    try { App.uiList?.renderList?.(); } catch(_){}
-    if (App.state?.currentAnalyse) {
-      try { App.form?.renderForm?.(); App.files?.scanCurrentAnalyse?.(); } catch(_){}
-      try { if (App.preview?.isOpen) App.preview?.renderPreview?.(); } catch(_){}
-    } else {
-      try { App.uiList?.updatePlaceholder?.(); } catch(_){}
-    }
+  } else { // kind === 'processes'
+    const cloneTpl = (typeof structuredClone === 'function')
+      ? structuredClone(newTemplate)
+      : deepClone(newTemplate);                    // ✅ deep clone
+
+    PROCESSES = cloneTpl;
+
+    // NEW: annoter TOUTES les sections de TOUS les processus avec une clé de process stable
+    (PROCESSES || []).forEach((proc, pidx) => {
+      const pk = `${(proc?.name ? slug(proc.name) : 'process')}-${pidx+1}`;
+      (proc.sections || []).forEach((s, sidx) => {
+        try {
+          Object.defineProperty(s, '__procKey', { value: pk, enumerable: false });
+          Object.defineProperty(s, '__procIdx', { value: pidx, enumerable: false });
+          Object.defineProperty(s, '__secIdx',   { value: sidx, enumerable: false });
+        } catch {}
+      });
+    });
+
+    // Expose la 1re colonne sans lien de référence :
+    TEMPLATE  = (typeof structuredClone === 'function')
+      ? structuredClone(PROCESSES[0]?.sections || [])
+      : deepClone(PROCESSES[0]?.sections || []);   // ✅ deep clone
+
+    // NEW: annoter aussi la copie "TEMPLATE" (utile si certaines vues utilisent TEMPLATE directement)
+    (TEMPLATE || []).forEach((s, sidx) => {
+      try {
+        Object.defineProperty(s, '__procKey', { value: `${(PROCESSES[0]?.name ? slug(PROCESSES[0].name) : 'process')}-1`, enumerable: false });
+        Object.defineProperty(s, '__procIdx', { value: 0, enumerable: false });
+        Object.defineProperty(s, '__secIdx',   { value: sidx, enumerable: false });
+      } catch {}
+    });
+
+    // flat defs = concat de tous les champs de tous les processus
+    TEMPLATE_FIELD_DEFS = PROCESSES.flatMap(pr => (pr.sections||[]).flatMap(s => s.fields || []));
   }
+
+  resetSectionKeyCache();
+  clampPage();
+
+  (async () => {
+    try {
+      try { localStorage.removeItem('customTemplateJSON'); } catch {}
+      const key = App.crypto?.currentKey;
+      if (key && App.crypto?.aesEncryptJson && App.storage?.put) {
+        const payload = PROCESSES || TEMPLATE;
+        const envelope = await App.crypto.aesEncryptJson(key, payload);
+        await App.storage.put('ui', { id: 'customTemplate', value: envelope });
+      } else {
+        localStorage.setItem('customTemplateJSON', JSON.stringify(PROCESSES || TEMPLATE));
+      }
+    } catch {}
+  })();
+
+  try { App.uiList?.showToast?.('Processus chargé.', 2000, 'success'); } catch(_){}
+  try { App.uiList?.renderList?.(); } catch(_){}
+  if (App.state?.currentAnalyse) {
+    try { App.form?.renderForm?.(); App.files?.scanCurrentAnalyse?.(); } catch(_){}
+    try { if (App.preview?.isOpen) App.preview?.renderPreview?.(); } catch(_){}
+  } else {
+    try { App.uiList?.updatePlaceholder?.(); } catch(_){}
+  }
+}
 
   /* =========================
      DOM HELPERS
@@ -2547,21 +2580,30 @@ function validateTemplate(tpl){
   let SECTION_KEY_CACHE = new WeakMap();
 
   function sectionKeyOf(section, sidx){
-    let k = SECTION_KEY_CACHE.get(section);
-    if (k) return k;
-    const base = slug(section.title || `section-${sidx+1}`);
-    k = `${base}--${sidx+1}`;
-    SECTION_KEY_CACHE.set(section, k);
-    return k;
-  }
+  let k = SECTION_KEY_CACHE.get(section);
+  if (k) return k;
 
-  function legacySectionKeyCandidates(section, sidx){
-    const t  = section.title || `section-${sidx+1}`;
-    const dash = slug(t);
-    const underscore = dash.replace(/-/g,'_');
-    const explicit = section.key;
-    return [explicit, dash, underscore].filter(Boolean);
-  }
+  // base locale à la section
+  const base = slug(section.title || `section-${(sidx ?? (section.__secIdx ?? 0))+1}`);
+
+  // NEW: préfixe processeur stable ("mono" si mode sections)
+  const proc = section.__procKey || 'mono';
+
+  k = `${proc}__${base}--${(sidx ?? (section.__secIdx ?? 0))+1}`;
+  SECTION_KEY_CACHE.set(section, k);
+  return k;
+}
+
+
+// 🔒 Version sécurisée : ne retourne que des clés non ambiguës
+function legacySectionKeyCandidates(section, sidx){
+  const t  = section.title || `section-${sidx+1}`;
+  const dash = slug(t);
+  const explicit = section.key;
+  const old = `${dash}--${sidx+1}`;
+  return [explicit, old].filter(Boolean);
+}
+
 
   function ensureSectionKey(project, section, sidx){
     const primary = sectionKeyOf(section, sidx);
@@ -2592,13 +2634,14 @@ function validateTemplate(tpl){
   /* =========================
      RAW HEADER / RAW DATA
      ========================= */
-  function getRawForData(obj, name) {
-    return (obj && obj.data && obj.data[name + '__raw']) || '';
-  }
-  function setRawForData(obj, name, raw) {
-    if (!obj.data) obj.data = {};
-    obj.data[name + '__raw'] = raw;
-  }
+function getRawForData(obj, name) {
+  return (obj && obj[name + '__raw']) || '';
+}
+
+function setRawForData(obj, name, raw) {
+  if (!obj || typeof obj !== 'object') return;
+  obj[name + '__raw'] = String(raw ?? '');
+}
 
   function getRawHeader(project, key) {
     return (project._raw && project._raw[key]) || '';
@@ -2759,18 +2802,47 @@ function validateTemplate(tpl){
   window.App = window.App || {};
 
   App.model = {
-    DEFAULT_TEMPLATE,
-    get TEMPLATE(){ return (typeof structuredClone === 'function') ? structuredClone(TEMPLATE) : deepClone(TEMPLATE); },          // 🔒 lecture seule
-    get PROCESSES(){ return (typeof structuredClone === 'function') ? structuredClone(PROCESSES) : deepClone(PROCESSES); },      // 🔒 lecture seule
-    setTemplate,
-    validateTemplate,
-    sectionKeyOf,
-    legacySectionKeyCandidates,
-    ensureSectionKey,
-    readSectionArray,
-    resetSectionKeyCache,
-    get TEMPLATE_FIELD_DEFS(){ return (typeof structuredClone === 'function') ? structuredClone(TEMPLATE_FIELD_DEFS) : deepClone(TEMPLATE_FIELD_DEFS); } // 🔒 optionnel mais sûr
-  };
+  DEFAULT_TEMPLATE,
+  get TEMPLATE(){ 
+    return (typeof structuredClone === 'function') 
+      ? structuredClone(TEMPLATE) 
+      : deepClone(TEMPLATE);                                  // 🔒 lecture seule
+  },
+
+  // ⬇️ ICI : getter PROCESSES avec ré-annotation des sections clonées
+  get PROCESSES(){
+    const clone = (typeof structuredClone === 'function')
+      ? structuredClone(PROCESSES)
+      : deepClone(PROCESSES);                                 // 🔒 lecture seule
+
+    // Ré-annoter les sections du clone pour éviter les collisions de clés
+    (clone || []).forEach((proc, pidx) => {
+      const pk = `${(proc?.name ? slug(proc.name) : 'process')}-${pidx+1}`;
+      (proc.sections || []).forEach((s, sidx) => {
+        try {
+          Object.defineProperty(s, '__procKey', { value: pk,   enumerable: false });
+          Object.defineProperty(s, '__procIdx', { value: pidx, enumerable: false });
+          Object.defineProperty(s, '__secIdx',  { value: sidx, enumerable: false });
+        } catch {}
+      });
+    });
+
+    return clone;
+  },
+
+  setTemplate,
+  validateTemplate,
+  sectionKeyOf,
+  legacySectionKeyCandidates,
+  ensureSectionKey,
+  readSectionArray,
+  resetSectionKeyCache,
+  get TEMPLATE_FIELD_DEFS(){ 
+    return (typeof structuredClone === 'function') 
+      ? structuredClone(TEMPLATE_FIELD_DEFS) 
+      : deepClone(TEMPLATE_FIELD_DEFS);                        // 🔒 optionnel mais sûr
+  }
+};
 
   App.util = {
     $, el, todayISO, slug, xmlEscape, parseDateStrict,
@@ -4046,81 +4118,80 @@ function renderList() {
 </script>
 
 <script>
-(() => {
-  // --- PETITS UTILITAIRES LOCAUX ---
-  const safeJSONClone = (v) =>
-    (typeof structuredClone === 'function' ? structuredClone(v) : JSON.parse(JSON.stringify(v)));
-  const persist = async () => {
-    try { await App.uiList?.persistCurrent?.(); } catch (e) { console.warn('[persist]', e); }
-  };
-  
-  const el = (...a) => (App?.util?.el ? App.util.el(...a) : document.createElement(a[0]));
-  const $  = (sel, root=document) => (App?.util?.$ ? App.util.$(sel,root) : root.querySelector(sel));
-// --- Persist UI state to localStorage (global)
-function saveLS(){
-  localStorage.setItem('formState', JSON.stringify({
-    currentAnalyseId: App.state?.currentAnalyse?.id || null,
-    panelOpen: App.form?._panelOpen || {},
-    multiPage: App.form?._multiPage || {}
-  }));
-}
-
-  // -------- Réindexation d’ensembles d’index
-  function shiftIndexSet(set, fromIndex, delta){
-    const tmp = Array.from(set||[]);
-    set?.clear?.();
-    tmp.forEach(i=>{
-      if (i < fromIndex) set.add(i);
-      else set.add(i + delta);
-    });
-  }
-  function removeIndexFromSet(set, index){
-    const tmp = Array.from(set||[]);
-    set?.clear?.();
-    tmp.forEach(i=>{
-      if (i < index) set.add(i);
-      else if (i > index) set.add(i-1);
-    });
-  }
-
-  // -------- Valeur "raw" par index pour les dates répétables
-  function getRawForDataIdx(obj, name, idx){
-    const key = name + '__raw_idx';
-    const arr = (obj && obj.data && Array.isArray(obj.data[key])) ? obj.data[key] : [];
-    return arr[idx] || '';
-  }
-  function setRawForDataIdx(obj, name, idx, raw){
-    if (!obj.data) obj.data = {};
-    const key = name + '__raw_idx';
-    if (!Array.isArray(obj.data[key])) obj.data[key] = [];
-    obj.data[key][idx] = raw;
-  }
-
-  // -------- Progression globale
-  // Somme de tous les process (compte toutes les occurrences réelles)
-  function computeProgress(project){
-    const arr = App.form.computeProgressByProcess(project);
-    const agg = arr.reduce((a, x)=>({ filled:a.filled+x.filled, total:a.total+x.total }), {filled:0,total:0});
-    const pct = agg.total ? Math.round((agg.filled*100)/agg.total) : 0;
-    return { pct, filled: agg.filled, total: agg.total };
-  };
-
-  // -------- Progression par process (sections simples, répétables, groupes rép., champs rép. imbriqués)
-function computeProgressByProcess(project){
+    (() => {
+      // --- UTILITAIRES LOCAUX ---
+      const safeJSONClone = (v) =>
+        (typeof structuredClone === 'function' ? structuredClone(v) : JSON.parse(JSON.stringify(v)));
+    
+      const persist = async () => {
+        try { await App.uiList?.persistCurrent?.(); } catch (e) { console.warn('[persist]', e); }
+      };
+    
+      const el = (...a) => (App?.util?.el ? App.util.el(...a) : document.createElement(a[0]));
+      const $  = (sel, root=document) => (App?.util?.$ ? App.util.$(sel,root) : root.querySelector(sel));
+    
+      // --- Persist UI state (global)
+      function saveLS(){
+        localStorage.setItem('formState', JSON.stringify({
+          currentAnalyseId: App.state?.currentAnalyse?.id || null,
+          panelOpen: App.form?._panelOpen || {},
+          multiPage: App.form?._multiPage || {},
+          showMissingOnly: !!App.util?.showMissingOnly
+        }));
+      }
+    
+      // -------- Réindexation d’ensembles d’index
+      function shiftIndexSet(set, fromIndex, delta){
+        const tmp = Array.from(set||[]);
+        set?.clear?.();
+        tmp.forEach(i=>{
+          if (i < fromIndex) set.add(i);
+          else set.add(i + delta);
+        });
+      }
+      function removeIndexFromSet(set, index){
+        const tmp = Array.from(set||[]);
+        set?.clear?.();
+        tmp.forEach(i=>{
+          if (i < index) set.add(i);
+          else if (i > index) set.add(i-1);
+        });
+      }
+    
+      // -------- Valeur "raw" par index pour dates répétables
+      function getRawForDataIdx(obj, name, idx){
+        const key = name + '__raw_idx';
+        const arr = (obj && Array.isArray(obj[key])) ? obj[key] : [];
+        return arr[idx] || '';
+      }
+      function setRawForDataIdx(obj, name, idx, raw){
+        if (!obj || typeof obj !== 'object') return;
+        const key = name + '__raw_idx';
+        if (!Array.isArray(obj[key])) obj[key] = [];
+        obj[key][idx] = String(raw ?? '');
+      }
+    
+      // -------- Progression globale
+      function computeProgress(project){
+        const arr = App.form.computeProgressByProcess(project);
+        const agg = arr.reduce((a, x)=>({ filled:a.filled+x.filled, total:a.total+x.total }), {filled:0,total:0});
+        const pct = agg.total ? Math.round((agg.filled*100)/agg.total) : 0;
+        return { pct, filled: agg.filled, total: agg.total };
+      };
+    
+      function computeProgressByProcess(project){
   const A = project || App.state?.currentAnalyse || {};
   const DATA = A?.data || {};
 
-  // helpers du modèle (respecte clés stables + candidats legacy)
   const sectionKeyOf = (section, idx) =>
     (App.model && App.model.sectionKeyOf) ? App.model.sectionKeyOf(section, idx) : `section-${idx+1}`;
+
   const readSectionArray = (section, idx) =>
     (App.model && App.model.readSectionArray) ? App.model.readSectionArray(A, section, idx)
                                               : (Array.isArray(DATA?.[sectionKeyOf(section, idx)]) ? DATA[sectionKeyOf(section, idx)] : []);
 
-  // test "rempli" centralisé (aligne sur la logique existante)
   const isFilled = (f, v) => {
-    if (App.util?.isFilled) return App.util.isFilled(f, v); // logique native (checkbox/date/number/file)
-    // fallback ultra-sécurisé
+    if (App.util?.isFilled) return App.util.isFilled(f, v);
     if (f?.type === 'checkbox') return v === true;
     if (f?.type === 'date')     return !!App.util?.parseDateStrict?.(v);
     if (f?.type === 'file')     return typeof v === 'string' && v.trim() !== '';
@@ -4128,7 +4199,6 @@ function computeProgressByProcess(project){
     return v != null && String(v).trim() !== '';
   };
 
-  // visite les champs "feuilles" d’une section (déplie les groupes)
   const collectLeafs = (section) => {
     const out = [];
     (section.fields || []).forEach(entry => {
@@ -4141,14 +4211,12 @@ function computeProgressByProcess(project){
     return out;
   };
 
-  // lit les occurrences d’un groupe répété dans un *item* (section rép.) ou dans un container passé (ROW ou DATA)
   const readGroupOccs = (group, container) => {
-    const GKEY = `__grp__${group.name}`; // convention de stockage pour groupes répétés
+    const GKEY = `__grp__${group.name}`;
     const arr = Array.isArray(container?.[GKEY]) ? container[GKEY] : [];
     return arr;
   };
 
-  // retourne true si le champ est rempli *au moins une fois* dans un container (item de section, ROW ou DATA)
   const fieldFilledSomewhere = (fd, container) => {
     if (!fd) return false;
     if (fd.repeatable) {
@@ -4158,14 +4226,12 @@ function computeProgressByProcess(project){
     return isFilled(fd, container?.[fd.name]);
   };
 
-  // liste des processus à parcourir (multi ou mono)
   const PRO = App?.model?.PROCESSES;
   const PROCESSES = (Array.isArray(PRO) && PRO.length)
     ? PRO
     : [{ name: 'Processus', sections: (App?.model?.TEMPLATE || []) }];
 
-  // DEBUG : changer à true pour voir le détail champ par champ dans la console
-  const DEBUG_TRACE = true;
+  const DEBUG_TRACE = false;
 
   return PROCESSES.map((proc, pidx) => {
     let total = 0, filled = 0;
@@ -4176,24 +4242,53 @@ function computeProgressByProcess(project){
 
       if (section?.repeatable) {
         const items = readSectionArray(section, sidx);
+
         leafs.forEach(({ field: fd, group }) => {
           if (group && group.repeatable) {
-            // groupe répété DANS section rép.
             const occs = items.flatMap(item => readGroupOccs(group, item));
-            total  += occs.length;
-            filled += occs.filter(obj => fieldFilledSomewhere(fd, obj)).length;
+
+            if (fd.repeatable) {
+              const counts = occs.map(obj => Array.isArray(obj?.[fd.name]) ? obj[fd.name].length : 0);
+              total += counts.reduce((a,b) => a + b, 0);
+
+              occs.forEach(obj => {
+                const arr = Array.isArray(obj?.[fd.name]) ? obj[fd.name] : [];
+                const rawIdx = Array.isArray(obj?.[fd.name + '__raw_idx']) ? obj[fd.name + '__raw_idx'] : null;
+                arr.forEach((v, i) => {
+                  const vv = (fd.type === 'date' && rawIdx) ? (rawIdx[i] ?? v) : v;
+                  if (isFilled(fd, vv)) filled += 1;
+                });
+              });
+
+            } else {
+              total  += occs.length;
+              filled += occs.filter(obj => fieldFilledSomewhere(fd, obj)).length;
+            }
 
           } else if (group && !group.repeatable) {
-            // groupe simple dans section rép.
-            total  += items.length;
-            filled += items.filter(item => fieldFilledSomewhere(fd, item)).length;
+
+            if (fd.repeatable) {
+              const counts = items.map(item => Array.isArray(item?.[fd.name]) ? item[fd.name].length : 0);
+              total += counts.reduce((a,b) => a + b, 0);
+
+              items.forEach(item => {
+                const arr = Array.isArray(item?.[fd.name]) ? item[fd.name] : [];
+                const rawIdx = Array.isArray(item?.[fd.name + '__raw_idx']) ? item[fd.name + '__raw_idx'] : null;
+                arr.forEach((v, i) => {
+                  const vv = (fd.type === 'date' && rawIdx) ? (rawIdx[i] ?? v) : v;
+                  if (isFilled(fd, vv)) filled += 1;
+                });
+              });
+
+            } else {
+              total  += items.length;
+              filled += items.filter(item => fieldFilledSomewhere(fd, item)).length;
+            }
 
           } else if (fd.repeatable) {
-            // champ répété (liste) dans section rép.
             for (const item of items) {
               const arr = Array.isArray(item?.[fd.name]) ? item[fd.name] : [];
               total += arr.length;
-              // dates : si __raw_idx existe, on l’utilise pour l’occurrence
               const rawIdx = Array.isArray(item?.[fd.name + '__raw_idx']) ? item[fd.name + '__raw_idx'] : null;
               arr.forEach((v, i) => {
                 const vv = (fd.type === 'date' && rawIdx) ? (rawIdx[i] ?? v) : v;
@@ -4202,30 +4297,38 @@ function computeProgressByProcess(project){
             }
 
           } else {
-            // champ simple dans section rép.
             total  += items.length;
             filled += items.filter(item => fieldFilledSomewhere(fd, item)).length;
           }
-
-          if (DEBUG_TRACE) trace.push({ section: section.title || `S${sidx+1}`, field: fd.name, from: 'rep-section' });
         });
 
       } else {
-        // ====== PATCH: brancher sur un namespace de section (ROW) au lieu de DATA (racine) ======
         const sectionKey = sectionKeyOf(section, sidx);
         const ROW = (DATA?.[sectionKey]) || {};
-        // (Optionnel) on conserve l'appel pour symétrie/évolutivité, même s'il n'est pas utilisé ici :
-        // const items = readSectionArray(section, sidx);
 
         leafs.forEach(({ field: fd, group }) => {
           if (group && group.repeatable) {
-            // groupe répété HORS section rép. => lire dans ROW
             const occs = readGroupOccs(group, ROW);
-            total  += occs.length;
-            filled += occs.filter(obj => fieldFilledSomewhere(fd, obj)).length;
+
+            if (fd.repeatable) {
+              const counts = occs.map(obj => Array.isArray(obj?.[fd.name]) ? obj[fd.name].length : 0);
+              total += counts.reduce((a,b) => a + b, 0);
+
+              occs.forEach(obj => {
+                const arr = Array.isArray(obj?.[fd.name]) ? obj[fd.name] : [];
+                const rawIdx = Array.isArray(obj?.[fd.name + '__raw_idx']) ? obj[fd.name + '__raw_idx'] : null;
+                arr.forEach((v, i) => {
+                  const vv = (fd.type === 'date' && rawIdx) ? (rawIdx[i] ?? v) : v;
+                  if (isFilled(fd, vv)) filled += 1;
+                });
+              });
+
+            } else {
+              total  += occs.length;
+              filled += occs.filter(obj => fieldFilledSomewhere(fd, obj)).length;
+            }
 
           } else if (fd.repeatable) {
-            // champ répété (liste) namespacé dans ROW
             const arr = Array.isArray(ROW?.[fd.name]) ? ROW[fd.name] : [];
             total += arr.length;
             const rawIdx = Array.isArray(ROW?.[fd.name + '__raw_idx']) ? ROW[fd.name + '__raw_idx'] : null;
@@ -4235,7 +4338,6 @@ function computeProgressByProcess(project){
             });
 
           } else {
-            // champ simple namespacé dans ROW (une seule occurrence visible)
             total += 1;
             if (fd.type === 'date') {
               const raw = ROW?.[fd.name + '__raw'];
@@ -4245,293 +4347,348 @@ function computeProgressByProcess(project){
               if (fieldFilledSomewhere(fd, ROW)) filled += 1;
             }
           }
-
-          if (DEBUG_TRACE) trace.push({ section: section.title || `S${sidx+1}`, field: fd.name, from: 'mono-section' });
         });
-        // ====== /PATCH ======
       }
     });
-
-    if (DEBUG_TRACE) {
-      try { console.table(trace); } catch {}
-    }
 
     const pct = total ? Math.round((filled * 100) / total) : 0;
     return { pct, filled, total, pidx, name: proc?.name || `Processus ${pidx+1}` };
   });
 }
 
-function updateCompletionBannerUI(pct=0, filled=0, total=0){
-  const banner = document.querySelector('.completion-banner');
-  if (!banner) return;
-  const P = Number.isFinite(pct) ? pct : 0;
-  const F = Number.isFinite(filled) ? filled : 0;
-  const T = Number.isFinite(total) ? total : 0;
-  banner.querySelector('.pct')?.replaceChildren(`${P}%`);
-  const barFill = banner.querySelector('.bar > span');
-  if (barFill) barFill.style.width = P + '%';
-  banner.querySelector('.info .sub')?.replaceChildren(`Complétion : ${P}% (${F}/${T})`);
-}
 
-  // -------- Rafraîchissement visuel de la progression (global + par process)
-function refreshProgressUI(){
-  try {
-    const project = App.state?.currentAnalyse;
-    if (!project) return;
-
-    const perProc = (typeof computeProgressByProcess === 'function'
-      ? computeProgressByProcess(project)
-      : (App.form?.computeProgressByProcess?.(project) || []));
-
-    const panels = document.querySelectorAll('.proc-columns .proc-panel');
-    panels.forEach((panel, i) => {
-      const st = panel.querySelector('.proc-status');
-      const per = perProc[i] || { pct:0, filled:0, total:0 };
-      if (st){
-        st.className = 'proc-status' + (per.pct === 100 ? ' ok' : '');
-        st.textContent = `${per.pct}% (${per.filled}/${per.total})`;
+      function updateCompletionBannerUI(pct=0, filled=0, total=0){
+        const banner = document.querySelector('.completion-banner');
+        if (!banner) return;
+        const P = Number.isFinite(pct) ? pct : 0;
+        const F = Number.isFinite(filled) ? filled : 0;
+        const T = Number.isFinite(total) ? total : 0;
+        banner.querySelector('.pct')?.replaceChildren(`${P}%`);
+        const barFill = banner.querySelector('.bar > span');
+        if (barFill) barFill.style.width = P + '%';
+        banner.querySelector('.info .sub')?.replaceChildren(`Complétion : ${P}% (${F}/${T})`);
       }
-    });
-
-    const g = App.form.computeProgress?.(project) || { pct:0, filled:0, total:0 };
-    updateCompletionBannerUI(g.pct, g.filled, g.total);
-  } catch (e) {
-    // pas d’erreur bruyante si le projet a été fermé entre-temps
-  }
-}
-
-
-  // -------- Évaluation des valeurs manquantes
-  function normMissing(fieldDef, value){
-    if (fieldDef.type === 'date')     return App.util.parseDateStrict(value) ? value : '';
-    if (fieldDef.type === 'checkbox') return !!value;
-    return value == null ? '' : value;
-  }
-  function headerMissing(current){
-    const missing = [];
-    if(!current?.title || !current.title.trim()) missing.push('title');
-    if(!App.util.parseDateStrict(current?.date)) missing.push('date');
-    return missing;
-  }
-
-  // -------- Snapshot des champs manquants (global multi-process)
-  let FILTER_SNAPSHOT = null;
-  function buildFilterSnapshot(project){
-  const snap = { header:{}, sections:{} };
-
-  const missH = headerMissing(project);
-  snap.header.title = missH.includes('title');
-  snap.header.date  = missH.includes('date');
-
-  const eachField = (section, fn) => {
-    for (const e of (section.fields || [])) {
-      if (e && e.group && Array.isArray(e.fields)) {
-        for (const f of e.fields) fn(f, /*group*/ e.group);
-      } else {
-        fn(e, null);
-      }
-    }
-  };
-
-  const ALL_SECTIONS = (() => {
-    const PRO = App?.model?.PROCESSES;
-    if (Array.isArray(PRO) && PRO.length){
-      return PRO.flatMap(p => p.sections || []);
-    }
-    return App?.model?.TEMPLATE || [];
-  })();
-
-  ALL_SECTIONS.forEach((section, sidx)=>{
-    const key = App.model.sectionKeyOf(section, sidx);
-    const S = snap.sections[key] = { repeatable: !!section.repeatable };
-
-    if (!section.repeatable){
-      // ===== PATCH: utiliser le namespace de section =====
-      const ROW = project?.data?.[key] || {};
-      S.simple  = new Set();
-      S.repeats = {};
-      eachField(section, (f)=>{
-        if (f.repeatable){
-          const arr = Array.isArray(ROW?.[f.name]) ? ROW[f.name] : [];
-          const set = new Set();
-          arr.forEach((v,i)=>{
-            const val = normMissing(f, v);
-            if (App.util.fieldIsMissingSimple(f, val)) set.add(i);
+    
+      function refreshProgressUI(){
+        try {
+          const project = App.state?.currentAnalyse;
+          if (!project) return;
+    
+          const perProc = (typeof computeProgressByProcess === 'function'
+            ? computeProgressByProcess(project)
+            : (App.form?.computeProgressByProcess?.(project) || []));
+    
+          const panels = document.querySelectorAll('.proc-columns .proc-panel');
+          panels.forEach((panel, i) => {
+            const st = panel.querySelector('.proc-status');
+            const per = perProc[i] || { pct:0, filled:0, total:0 };
+            if (st){
+              st.className = 'proc-status' + (per.pct === 100 ? ' ok' : '');
+              st.textContent = `${per.pct}% (${per.filled}/${per.total})`;
+            }
           });
-          S.repeats[f.name] = set;
-        } else {
-          const val = normMissing(f, ROW?.[f.name]);
-          if (App.util.fieldIsMissingSimple(f, val)) S.simple.add(f.name);
-        }
-      });
-      // ===== /PATCH =====
-    } else {
-      const items = Array.isArray(project.data?.[key]) ? project.data[key] : [];
-      S.blocks = {};
-      items.forEach((item, i)=>{
-        const b = { simple:new Set(), repeats:{} };
-        eachField(section, (f)=>{
-          if (f.repeatable){
-            const a = Array.isArray(item?.[f.name]) ? item[f.name] : [];
-            const set = new Set();
-            a.forEach((v,idx)=>{
-              const val = normMissing(f, v);
-              if (App.util.fieldIsMissingSimple(f, val)) set.add(idx);
+    
+          const g = App.form.computeProgress?.(project) || { pct:0, filled:0, total:0 };
+          updateCompletionBannerUI(g.pct, g.filled, g.total);
+        } catch {}
+      }
+    
+      // -------- Évaluation des valeurs manquantes
+      function normMissing(fieldDef, value){
+        if (fieldDef.type === 'date')     return App.util.parseDateStrict(value) ? value : '';
+        if (fieldDef.type === 'checkbox') return !!value;
+        return value == null ? '' : value;
+      }
+      function headerMissing(current){
+        const missing = [];
+        if(!current?.title || !current.title.trim()) missing.push('title');
+        if(!(App.util?.parseDateStrict?.(current?.date))) missing.push('date');
+        return missing;
+      }
+    
+      // -------- Snapshot des champs manquants
+      let FILTER_SNAPSHOT = null;
+      function buildFilterSnapshot(project){
+        const snap = { header:{}, sections:{} };
+    
+        const missH = headerMissing(project);
+        snap.header.title = missH.includes('title');
+        snap.header.date  = missH.includes('date');
+    
+        const eachField = (section, fn) => {
+          for (const e of (section.fields || [])) {
+            if (e && e.group && Array.isArray(e.fields)) {
+              for (const f of e.fields) fn(f, /*group*/ e.group);
+            } else {
+              fn(e, null);
+            }
+          }
+        };
+    
+        const ALL_SECTIONS = (() => {
+          const PRO = App?.model?.PROCESSES;
+          if (Array.isArray(PRO) && PRO.length){
+            return PRO.flatMap(p => p.sections || []);
+          }
+          return App?.model?.TEMPLATE || [];
+        })();
+    
+        ALL_SECTIONS.forEach((section, sidx)=>{
+          const key = App.model.sectionKeyOf(section, sidx);
+          const S = snap.sections[key] = { repeatable: !!section.repeatable };
+    
+          if (!section.repeatable){
+            const ROW = project?.data?.[key] || {};
+            S.simple  = new Set();
+            S.repeats = {};
+            eachField(section, (f)=>{
+              if (f.repeatable){
+                const arr = Array.isArray(ROW?.[f.name]) ? ROW[f.name] : [];
+                const set = new Set();
+                arr.forEach((v,i)=>{
+                  const val = normMissing(f, v);
+                  if (App.util.fieldIsMissingSimple(f, val)) set.add(i);
+                });
+                S.repeats[f.name] = set;
+              } else {
+                const val = normMissing(f, ROW?.[f.name]);
+                if (App.util.fieldIsMissingSimple(f, val)) S.simple.add(f.name);
+              }
             });
-            b.repeats[f.name] = set;
           } else {
-            const val = normMissing(f, item?.[f.name]);
-            if (App.util.fieldIsMissingSimple(f, val)) b.simple.add(f.name);
+            const items = Array.isArray(project.data?.[key]) ? project.data[key] : [];
+            S.blocks = {};
+            items.forEach((item, i)=>{
+              const b = { simple:new Set(), repeats:{} };
+              eachField(section, (f)=>{
+                if (f.repeatable){
+                  const a = Array.isArray(item?.[f.name]) ? item[f.name] : [];
+                  const set = new Set();
+                  a.forEach((v,idx)=>{
+                    const val = normMissing(f, v);
+                    if (App.util.fieldIsMissingSimple(f, val)) set.add(idx);
+                  });
+                  b.repeats[f.name] = set;
+                } else {
+                  const val = normMissing(f, item?.[f.name]);
+                  if (App.util.fieldIsMissingSimple(f, val)) b.simple.add(f.name);
+                }
+              });
+              if (b.simple.size || Object.values(b.repeats).some(set=>set.size>0)) S.blocks[i] = b;
+            });
           }
         });
-        if (b.simple.size || Object.values(b.repeats).some(set=>set.size>0)) S.blocks[i] = b;
-      });
-    }
-  });
-
-  return snap;
-}
-
-  // -------- Nettoyage des champs vides dans un bloc
-  function pruneItemFieldIfEmpty(field, itemObj, dataRoot, itemIndex){
-    const v = itemObj?.[field.name];
-    const empty = (field.type==='checkbox') ? (v===false)
-                 : (v==null || (typeof v==='string' && v.trim()===''));
-    if (!empty) return;
-    if (itemObj && field.name in itemObj) delete itemObj[field.name];
-    const rawKey = field.name + '__raw_idx';
-    if (dataRoot && Array.isArray(dataRoot[rawKey]) && Number.isInteger(itemIndex)) {
-      dataRoot[rawKey][itemIndex] = '';
-    }
-  }
-
-  // -------- Rendu d’un champ de formulaire (inclut champ fichier + historique)
-
-  function sanitizeFilesInRow(row, section){
-    if (!row || !section?.fields) return row;
-    (section.fields||[]).forEach(f=>{
-      if (f?.type === 'file') {
-        delete row[f.name];
-        delete row[f.name + '__listed'];
+    
+        return snap;
       }
-      if (f?.repeatable && f?.type === 'file') {
-        if (!Array.isArray(row[f.name])) row[f.name] = [];
+    
+      // -------- Nettoyage des champs vides dans un bloc
+      function pruneItemFieldIfEmpty(field, itemObj, dataRoot, itemIndex){
+        const v = itemObj?.[field.name];
+        const empty = (field.type==='checkbox') ? (v===false)
+                     : (v==null || (typeof v==='string' && v.trim()===''));
+        if (!empty) return;
+        if (itemObj && field.name in itemObj) delete itemObj[field.name];
+        const rawKey = field.name + '__raw_idx';
+        if (dataRoot && Array.isArray(dataRoot[rawKey]) && Number.isInteger(itemIndex)) {
+          dataRoot[rawKey][itemIndex] = '';
+        }
       }
-    });
-    return row;
-  }
-
-  // === Rendu d'une SECTION non répétable (entière) – gère aussi les GROUPES ===
-  function renderNonRepeatableSection(section, project, secEl){
-    let hasContent = false;
-
-    const rerender = async () => {
-      await persist();
-      const parent = secEl.parentNode;
-      const fresh = secEl.cloneNode(false);
-      parent.replaceChild(fresh, secEl);
-      renderNonRepeatableSection(section, project, fresh);
-      if (App.util?.showMissingOnly) {
-        const { pct, filled, total } = computeProgress(App.state.currentAnalyse);
-        updateCompletionBannerUI(pct, filled, total);
+    
+      // -------- Sanitisation fichiers (SECTION non répétable)
+      function sanitizeFilesInRow(row, section){
+        if (!row || !section?.fields) return row;
+        (section.fields||[]).forEach(f=>{
+          if (f?.type === 'file') {
+            delete row[f.name];
+            delete row[f.name + '__listed'];
+          }
+          if (f?.repeatable && f?.type === 'file') {
+            if (!Array.isArray(row[f.name])) row[f.name] = [];
+          }
+        });
+        return row;
       }
-    };
-
-    (section?.fields || []).forEach(entry => {
-
-      // =============== GROUPE =================
-      if (entry && entry.group && Array.isArray(entry.fields)) {
-        const g = entry.group;
-        const data = (project.data ||= {});
-
-        // ---------- GROUPE RÉPÉTABLE ----------
-        if (g.repeatable) {
-          const KEY = `__grp__${g.name}`;
-          if (!Array.isArray(data[KEY])) data[KEY] = [];
-
-          const row = el('div', { class:'kv' });
-          const lab = el('label', {}, { children:[ g.label || g.name ] });
-          const list = el('div', { class:'repeatable' });
-
-          const renderOcc = (idx) => {
-            const obj = data[KEY][idx] || (data[KEY][idx] = {});
-            const item = el('div', { class:'repeatable-item' });
-            const wrap = el('div', { class:'input-wrap' });
-
-            const tag = el('div', { class:'mini-tags' });
-            const dup = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
-            const rm  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
-            tag.append(dup, rm);
-
-            dup.addEventListener('click', async () => {
-              data[KEY].splice(idx+1, 0, structuredClone(obj));
-              await rerender();
-            });
-            rm.addEventListener('click', async () => {
-              if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return;
-              data[KEY].splice(idx, 1);
-              await rerender();
-            });
-
+    
+      // === Rendu d'une SECTION non répétable (groupe/fields) ===
+      function renderNonRepeatableSection(section, project, secEl, sidx){
+        let hasContent = false;
+    
+        // namespace de section
+        const DATA = (App.state.currentAnalyse.data ||= {});
+        const sectionKey = (App?.model?.sectionKeyOf)
+          ? App.model.sectionKeyOf(section, sidx)
+          : `section-${(sidx ?? 0) + 1}`;
+        const ROW = (DATA[sectionKey] ||= {});
+    
+        const rerender = async () => {
+          await persist();
+          const parent = secEl.parentNode;
+          const fresh = secEl.cloneNode(false);
+          parent.replaceChild(fresh, secEl);
+          renderNonRepeatableSection(section, project, fresh, sidx);
+          if (App.util?.showMissingOnly) {
+            const { pct, filled, total } = computeProgress(App.state.currentAnalyse);
+            updateCompletionBannerUI(pct, filled, total);
+          }
+        };
+    
+        (section?.fields || []).forEach(entry => {
+    
+          // ====== GROUPE ======
+          if (entry && entry.group && Array.isArray(entry.fields)) {
+            const g = entry.group;
+    
+            // ---- groupe répétable
+            if (g.repeatable) {
+              const KEY = `__grp__${g.name}`;
+              if (!Array.isArray(ROW[KEY])) ROW[KEY] = [];
+    
+              const row = el('div', { class:'kv' });
+              const lab = el('label', {}, { children:[ g.label || g.name ] });
+              const list = el('div', { class:'repeatable' });
+    
+              const renderOcc = (idx) => {
+                const obj = ROW[KEY][idx] || (ROW[KEY][idx] = {});
+                const item = el('div', { class:'repeatable-item' });
+                const wrap = el('div', { class:'input-wrap' });
+    
+                const tag = el('div', { class:'mini-tags' });
+                const dup = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
+                const rm  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
+                tag.append(dup, rm);
+    
+                dup.addEventListener('click', async () => {
+                  ROW[KEY].splice(idx+1, 0, structuredClone(obj));
+                  await rerender();
+                });
+                rm.addEventListener('click', async () => {
+                  if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return;
+                  ROW[KEY].splice(idx, 1);
+                  await rerender();
+                });
+    
+                (entry.fields || []).forEach(sf => {
+                  const r = el('div', { class:'kv' });
+                  const l = el('label', {}, { children:[ sf.label || sf.name ] });
+                  const cur = (sf.type === 'date')
+                    ? (App.util?.getRawForData ? App.util.getRawForData(obj, sf.name) : (obj[sf.name] ?? ''))
+                    : (obj[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
+    
+                  const input = renderInputForField(
+                    sf,
+                    cur,
+                    async (val) => {
+                      if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(obj, sf.name, val);
+                      else obj[sf.name] = val;
+                      await persist();
+                      if (App.util?.showMissingOnly) {
+                        const { pct, filled, total } = computeProgress(App.state.currentAnalyse);
+                        updateCompletionBannerUI(pct, filled, total);
+                      }
+                    },
+                    `${idx}`,
+                    { row: obj, uid: `${sectionKey}__grp_${g.name}__${sf.name}__i${idx}` }
+                  );
+    
+                  r.append(l, input);
+                  wrap.append(r);
+                });
+    
+                item.append(el('div', { class:'input-wrap' }, { children:[tag, wrap] }));
+                return item;
+              };
+    
+              ROW[KEY].forEach((_, i) => list.append(renderOcc(i)));
+    
+              const addBtn = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
+              addBtn.addEventListener('click', async () => { ROW[KEY].push({}); await rerender(); });
+    
+              row.append(lab, el('div', {}, { children:[list, addBtn] }));
+              secEl.append(row);
+              hasContent = true;
+              return;
+            }
+    
+            // ---- groupe non répétable
+            const container = el('div', { class:'kv' });
+            const legend = el('label', { class:'group-legend' }, { children:[ g.label || g.name ] });
+            const wrap   = el('div', { class:'section group-wrap' });
+    
             (entry.fields || []).forEach(sf => {
               const r = el('div', { class:'kv' });
               const l = el('label', {}, { children:[ sf.label || sf.name ] });
               const cur = (sf.type === 'date')
-                ? (App.util?.getRawForData ? App.util.getRawForData(obj, sf.name) : (obj[sf.name] ?? ''))
-                : (obj[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
-
+                ? (App.util?.getRawForData ? App.util.getRawForData(ROW, sf.name) : (ROW[sf.name] ?? ''))
+                : (ROW[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
+    
               const input = renderInputForField(
-                sf,
-                cur,
+                sf, cur,
                 async (val) => {
-                  if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(obj, sf.name, val);
-                  else obj[sf.name] = val;
+                  if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(ROW, sf.name, val);
+                  else ROW[sf.name] = val;
                   await persist();
                   if (App.util?.showMissingOnly) {
                     const { pct, filled, total } = computeProgress(App.state.currentAnalyse);
                     updateCompletionBannerUI(pct, filled, total);
                   }
                 },
-                `${idx}`,
-                { row: obj, uid: `${KEY}__${sf.name}__i${idx}` }
+                null,
+                { row: ROW, uid: `${sectionKey}__grp_${g.name}__${sf.name}` }
               );
-
+    
               r.append(l, input);
               wrap.append(r);
             });
-
-            item.append(el('div', { class:'input-wrap' }, { children:[tag, wrap] }));
-            return item;
-          };
-
-          data[KEY].forEach((_, i) => list.append(renderOcc(i)));
-
-          const addBtn = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
-          addBtn.addEventListener('click', async () => { data[KEY].push({}); await rerender(); });
-
-          row.append(lab, el('div', {}, { children:[list, addBtn] }));
-          secEl.append(row);
-          hasContent = true;
-          return;
-        }
-
-        // ---------- GROUPE NON RÉPÉTABLE ----------
-        const container = el('div', { class:'kv' });
-        const legend = el('label', { class:'group-legend' }, { children:[ g.label || g.name ] });
-        const wrap   = el('div', { class:'section group-wrap' });
-
-        (entry.fields || []).forEach(sf => {
+    
+            container.append(legend, wrap);
+            secEl.append(container);
+            hasContent = true;
+            return;
+          }
+    
+          // ====== CHAMP SIMPLE ======
+          if (entry?.repeatable) {
+            const getArr = () => {
+              const a = Array.isArray(ROW[entry.name]) ? ROW[entry.name] : [];
+              if (!Array.isArray(ROW[entry.name])) ROW[entry.name] = a;
+              return ROW[entry.name];
+            };
+            const setArr = (a) => { ROW[entry.name] = a; };
+    
+            const box = el('div', { class:'repeatable-list' });
+            const list = el('div', { class:'repeatable-items' });
+    
+            const addBtn = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
+            addBtn.addEventListener('click', async () => {
+              const a = getArr().slice(); a.push(entry.type==='checkbox'?false:''); setArr(a);
+              await persist(); list.innerHTML = ''; getArr().forEach((_, i) => list.append(renderRow(i)));
+            });
+    
+            const renderRow = buildRenderRow({
+              field: entry, getArr, setArr,
+              idxToRow: () => ROW,
+              uidBase: `${sectionKey}__${entry.name}`
+            });
+    
+            getArr().forEach((_, i) => list.append(renderRow(i)));
+            box.append(list, addBtn);
+            secEl.append(el('div', { class:'kv' }, { children:[ el('label', {}, { children:[ entry.label || entry.name ] }), box ] }));
+            hasContent = true;
+            return;
+          }
+    
           const r = el('div', { class:'kv' });
-          const l = el('label', {}, { children:[ sf.label || sf.name ] });
-          const cur = (sf.type === 'date')
-            ? (App.util?.getRawForData ? App.util.getRawForData(project, sf.name) : (data[sf.name] ?? ''))
-            : (data[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
-
+          const l = el('label', {}, { children:[ entry.label || entry.name ] });
+          const cur = (entry.type === 'date')
+            ? (App.util?.getRawForData ? App.util.getRawForData(ROW, entry.name) : (ROW[entry.name] ?? ''))
+            : (ROW[entry.name] ?? (entry.type === 'checkbox' ? false : ''));
+    
           const input = renderInputForField(
-            sf, cur,
+            entry, cur,
             async (val) => {
-              if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(project, sf.name, val);
-              else data[sf.name] = val;
+              if (entry.type === 'date' && App.util?.setRawForData) App.util.setRawForData(ROW, entry.name, val);
+              else ROW[entry.name] = val;
               await persist();
               if (App.util?.showMissingOnly) {
                 const { pct, filled, total } = computeProgress(App.state.currentAnalyse);
@@ -4539,1752 +4696,1656 @@ function refreshProgressUI(){
               }
             },
             null,
-            { row: data, uid: `grp_${g.name}__${sf.name}` }
+            { row: ROW, uid: `${sectionKey}__${entry.name}` }
           );
-
+    
           r.append(l, input);
-          wrap.append(r);
+          attachTip(r, entry);
+          secEl.append(r);
+          hasContent = true;
         });
-
-        container.append(legend, wrap);
-        secEl.append(container);
-        hasContent = true;
-        return;
+    
+        if (!hasContent) {
+          secEl.append(el('div', { class:'empty' }, { children:['(aucun champ)'] }));
+        }
       }
-
-      // =============== CHAMP SIMPLE =================
-      if (entry?.repeatable) {
-        const getArr = () => {
-          const a = Array.isArray(project.data?.[entry.name]) ? project.data[entry.name] : [];
-          (project.data ||= {}); if (!Array.isArray(project.data[entry.name])) project.data[entry.name] = a;
-          return project.data[entry.name];
+    
+      // === Rendu d'une SECTION répétable ===
+      function renderRepeatableSection(section, project, secEl, sidx){
+        const key = App?.model?.sectionKeyOf ? App.model.sectionKeyOf(section, sidx) : `section-${sidx+1}`;
+        const getItems = () => {
+          const a = Array.isArray(project.data?.[key]) ? project.data[key] : [];
+          (project.data ||= {}); if (!Array.isArray(project.data[key])) project.data[key] = a;
+          return project.data[key];
         };
-        const setArr = (a) => { project.data[entry.name] = a; };
-
-        const box = el('div', { class:'repeatable-list' });
-        const list = el('div', { class:'repeatable-items' });
-
-        const addBtn = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
-        addBtn.addEventListener('click', async () => {
-          const a = getArr().slice(); a.push(entry.type==='checkbox'?false:''); setArr(a);
-          await persist(); list.innerHTML = ''; getArr().forEach((_, i) => list.append(renderRow(i)));
-        });
-
-        const renderRow = buildRenderRow({
-          field: entry, getArr, setArr,
-          idxToRow: () => project.data,
-          uidBase: `${section.title || 'sec'}__${entry.name}`
-        });
-
-        getArr().forEach((_, i) => list.append(renderRow(i)));
-        box.append(list, addBtn);
-        secEl.append(el('div', { class:'kv' }, { children:[ el('label', {}, { children:[ entry.label || entry.name ] }), box ] }));
-        hasContent = true;
-        return;
-      }
-
-      const r = el('div', { class:'kv' });
-      const l = el('label', {}, { children:[ entry.label || entry.name ] });
-      const cur = (entry.type === 'date')
-        ? (App.util?.getRawForData ? App.util.getRawForData(project, entry.name) : (project.data?.[entry.name] ?? ''))
-        : (project.data?.[entry.name] ?? (entry.type === 'checkbox' ? false : ''));
-
-      const input = renderInputForField(
-        entry, cur,
-        async (val) => {
-          (project.data ||= {});
-          if (entry.type === 'date' && App.util?.setRawForData) App.util.setRawForData(project, entry.name, val);
-          else project.data[entry.name] = val;
-          await persist();
-          if (App.util?.showMissingOnly) {
-            const { pct, filled, total } = computeProgress(App.state.currentAnalyse);
-            updateCompletionBannerUI(pct, filled, total);
-          }
-        },
-        null,
-        { row: project.data, uid: `${section.title || 'sec'}__${entry.name}` }
-      );
-
-      r.append(l, input);
-      attachTip(r, entry);
-      secEl.append(r);
-      hasContent = true;
-    });
-
-    if (!hasContent) {
-      secEl.append(el('div', { class:'empty' }, { children:['(aucun champ)'] }));
-    }
-  }
-  // === Rendu d'une SECTION répétable (entière) – gère aussi les GROUPES ===
-  function renderRepeatableSection(section, project, secEl, sidx){
-    const key = App?.model?.sectionKeyOf ? App.model.sectionKeyOf(section, sidx) : `section-${sidx+1}`;
-    const getItems = () => {
-      const a = Array.isArray(project.data?.[key]) ? project.data[key] : [];
-      (project.data ||= {}); if (!Array.isArray(project.data[key])) project.data[key] = a;
-      return project.data[key];
-    };
-    const setItems = (a) => { project.data[key] = a; };
-
-    const items = getItems();
-
-    const addBlock = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter un bloc'] });
-    addBlock.addEventListener('click', async () => { items.push({}); await persist(); App.form?.renderForm?.(); });
-
-    items.forEach((item, idx) => {
-      const block = el('div', { class:'repeatable-item' });
-      const inner = el('div', { class:'input-wrap' });
-
-      const tag = el('div', { class:'mini-tags' });
-      const dup = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
-      const rm  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
-      tag.append(dup, rm);
-
-      dup.addEventListener('click', async () => {
-        items.splice(idx+1, 0, structuredClone(items[idx] || {}));
-        await persist(); App.form?.renderForm?.();
-      });
-      rm.addEventListener('click', async () => {
-        if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return;
-        items.splice(idx, 1);
-        await persist(); App.form?.renderForm?.();
-      });
-
-      (section.fields || []).forEach(entry => {
-        // ----- Groupe
-        if (entry && entry.group && Array.isArray(entry.fields)) {
-          const g = entry.group;
-          // groupe répétable dans un bloc
-          if (g.repeatable) {
-            const GKEY = `__grp__${g.name}`;
-            if (!Array.isArray(item[GKEY])) item[GKEY] = [];
-            const row = el('div', { class:'kv' });
-            const lab = el('label', {}, { children:[ g.label || g.name ] });
-            const list = el('div', { class:'repeatable' });
-
-            const renderOcc = (i) => {
-              const obj = item[GKEY][i] || (item[GKEY][i] = {});
-              const it = el('div', { class:'repeatable-item' });
-              const wr = el('div', { class:'input-wrap' });
-
-              const tag2 = el('div', { class:'mini-tags' });
-              const dup2 = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
-              const rm2  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
-              tag2.append(dup2, rm2);
-              dup2.addEventListener('click', async () => {
-                item[GKEY].splice(i+1, 0, structuredClone(obj)); await persist(); App.form?.renderForm?.();
-              });
-              rm2.addEventListener('click', async () => {
-                if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return;
-                item[GKEY].splice(i, 1); await persist(); App.form?.renderForm?.();
-              });
-
+        const setItems = (a) => { project.data[key] = a; };
+    
+        const items = getItems();
+    
+        const addBlock = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter un bloc'] });
+        addBlock.addEventListener('click', async () => { items.push({}); await persist(); App.form?.renderForm?.(); });
+    
+        items.forEach((item, idx) => {
+          const block = el('div', { class:'repeatable-item' });
+          const inner = el('div', { class:'input-wrap' });
+    
+          const tag = el('div', { class:'mini-tags' });
+          const dup = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
+          const rm  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
+          tag.append(dup, rm);
+    
+          dup.addEventListener('click', async () => {
+            items.splice(idx+1, 0, structuredClone(items[idx] || {}));
+            await persist(); App.form?.renderForm?.();
+          });
+          rm.addEventListener('click', async () => {
+            if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return;
+            items.splice(idx, 1);
+            await persist(); App.form?.renderForm?.();
+          });
+    
+          (section.fields || []).forEach(entry => {
+            // --- Groupe
+            if (entry && entry.group && Array.isArray(entry.fields)) {
+              const g = entry.group;
+    
+              // groupe répétable
+              if (g.repeatable) {
+                const GKEY = `__grp__${g.name}`;
+                if (!Array.isArray(item[GKEY])) item[GKEY] = [];
+                const row = el('div', { class:'kv' });
+                const lab = el('label', {}, { children:[ g.label || g.name ] });
+                const list = el('div', { class:'repeatable' });
+    
+                const renderOcc = (i) => {
+                  const obj = item[GKEY][i] || (item[GKEY][i] = {});
+                  const it = el('div', { class:'repeatable-item' });
+                  const wr = el('div', { class:'input-wrap' });
+    
+                  const tag2 = el('div', { class:'mini-tags' });
+                  const dup2 = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
+                  const rm2  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
+                  tag2.append(dup2, rm2);
+                  dup2.addEventListener('click', async () => {
+                    item[GKEY].splice(i+1, 0, structuredClone(obj)); await persist(); App.form?.renderForm?.();
+                  });
+                  rm2.addEventListener('click', async () => {
+                    if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return;
+                    item[GKEY].splice(i, 1); await persist(); App.form?.renderForm?.();
+                  });
+    
+                  (entry.fields || []).forEach(sf => {
+                    const r = el('div', { class:'kv' });
+                    const l = el('label', {}, { children:[ sf.label || sf.name ] });
+                    const cur = (sf.type === 'date')
+                      ? (App.util?.getRawForData ? App.util.getRawForData(obj, sf.name) : (obj[sf.name] ?? ''))
+                      : (obj[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
+    
+                    const input = renderInputForField(
+                      sf, cur,
+                      async (val) => {
+                        if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(obj, sf.name, val);
+                        else obj[sf.name] = val;
+                        await persist();
+                      },
+                      `${idx}_${i}`,
+                      { row: obj, uid: `${key}__blk${idx}__grp_${g.name}__${sf.name}__i${i}` }
+                    );
+    
+                    r.append(l, input);
+                    wr.append(r);
+                  });
+    
+                  it.append(el('div', { class:'input-wrap' }, { children:[tag2, wr] }));
+                  return it;
+                };
+    
+                item[GKEY].forEach((_, i) => list.append(renderOcc(i)));
+    
+                const add = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
+                add.addEventListener('click', async () => { item[GKEY].push({}); await persist(); App.form?.renderForm?.(); });
+    
+                row.append(lab, el('div', {}, { children:[list, add] }));
+                inner.append(row);
+                return;
+              }
+    
+              // groupe simple
+              const row = el('div', { class:'kv' });
+              const legend = el('label', { class:'group-legend' }, { children:[ g.label || g.name ] });
+              const wrap   = el('div', { class:'section group-wrap' });
               (entry.fields || []).forEach(sf => {
                 const r = el('div', { class:'kv' });
                 const l = el('label', {}, { children:[ sf.label || sf.name ] });
                 const cur = (sf.type === 'date')
-                  ? (App.util?.getRawForData ? App.util.getRawForData(obj, sf.name) : (obj[sf.name] ?? ''))
-                  : (obj[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
-
+                  ? (App.util?.getRawForData ? App.util.getRawForData(item, sf.name) : (item[sf.name] ?? ''))
+                  : (item[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
+    
                 const input = renderInputForField(
                   sf, cur,
                   async (val) => {
-                    if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(obj, sf.name, val);
-                    else obj[sf.name] = val;
+                    if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(item, sf.name, val);
+                    else item[sf.name] = val;
                     await persist();
                   },
-                  `${idx}_${i}`,
-                  { row: obj, uid: `${key}__blk${idx}__grp_${g.name}__${sf.name}__i${i}` }
+                  `${key}__blk${idx}`,
+                  { row: item, uid: `${key}__blk${idx}__${sf.name}` }
                 );
-
+    
                 r.append(l, input);
-                wr.append(r);
+                wrap.append(r);
               });
-
-              it.append(el('div', { class:'input-wrap' }, { children:[tag2, wr] }));
-              return it;
-            };
-
-            item[GKEY].forEach((_, i) => list.append(renderOcc(i)));
-
-            const add = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
-            add.addEventListener('click', async () => { item[GKEY].push({}); await persist(); App.form?.renderForm?.(); });
-
-            row.append(lab, el('div', {}, { children:[list, add] }));
-            inner.append(row);
-            return;
-          }
-
-          // groupe simple dans un bloc
-          const row = el('div', { class:'kv' });
-          const legend = el('label', { class:'group-legend' }, { children:[ g.label || g.name ] });
-          const wrap   = el('div', { class:'section group-wrap' });
-          (entry.fields || []).forEach(sf => {
+              row.append(legend, wrap);
+              inner.append(row);
+              return;
+            }
+    
+            // --- Champ simple répétable
+            if (entry?.repeatable) {
+              const getArr = () => {
+                const a = Array.isArray(item[entry.name]) ? item[entry.name] : [];
+                if (!Array.isArray(item[entry.name])) item[entry.name] = a;
+                return item[entry.name];
+              };
+              const setArr = (a) => { item[entry.name] = a; };
+    
+              const box = el('div', { class:'repeatable-list' });
+              const list2 = el('div', { class:'repeatable-items' });
+    
+              const add2 = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
+              add2.addEventListener('click', async () => {
+                const a = getArr().slice(); a.push(entry.type==='checkbox'?false:''); setArr(a);
+                await persist(); list2.innerHTML=''; getArr().forEach((_, i) => list2.append(renderRow(i)));
+              });
+    
+              const renderRow = buildRenderRow({
+                field: entry, getArr, setArr,
+                idxToRow: () => item,
+                uidBase: `${key}__blk${idx}__${entry.name}`
+              });
+    
+              getArr().forEach((_, i) => list2.append(renderRow(i)));
+              box.append(list2, add2);
+              inner.append(el('div', { class:'kv' }, { children:[ el('label', {}, { children:[ entry.label || entry.name ] }), box ] }));
+              return;
+            }
+    
+            // --- Champ simple non répétable
             const r = el('div', { class:'kv' });
-            const l = el('label', {}, { children:[ sf.label || sf.name ] });
-            const cur = (sf.type === 'date')
-              ? (App.util?.getRawForData ? App.util.getRawForData(item, sf.name) : (item[sf.name] ?? ''))
-              : (item[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
-
+            const l = el('label', {}, { children:[ entry.label || entry.name ] });
+            const cur = (entry.type === 'date')
+              ? (App.util?.getRawForData ? App.util.getRawForData(item, entry.name) : (item[entry.name] ?? ''))
+              : (item[entry.name] ?? (entry.type === 'checkbox' ? false : ''));
+    
             const input = renderInputForField(
-              sf, cur,
+              entry, cur,
               async (val) => {
-                if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(item, sf.name, val);
-                else item[sf.name] = val;
+                if (entry.type === 'date' && App.util?.setRawForData) App.util.setRawForData(item, entry.name, val);
+                else item[entry.name] = val;
                 await persist();
               },
-              `${key}__blk${idx}`,
-              { row: item, uid: `${key}__blk${idx}__${sf.name}` }
+              idx,
+              { row: item, uid: `${key}__blk${idx}__${entry.name}` }
             );
-
+    
             r.append(l, input);
-            wrap.append(r);
+            attachTip(r, entry);
+            inner.append(r);
           });
-          row.append(legend, wrap);
-          inner.append(row);
-          return;
-        }
-
-        // ----- Champ simple
-        if (entry?.repeatable) {
-          const getArr = () => {
-            const a = Array.isArray(item[entry.name]) ? item[entry.name] : [];
-            if (!Array.isArray(item[entry.name])) item[entry.name] = a;
-            return item[entry.name];
-          };
-          const setArr = (a) => { item[entry.name] = a; };
-
-          const box = el('div', { class:'repeatable-list' });
-          const list2 = el('div', { class:'repeatable-items' });
-
-          const add2 = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
-          add2.addEventListener('click', async () => {
-            const a = getArr().slice(); a.push(entry.type==='checkbox'?false:''); setArr(a);
-            await persist(); list2.innerHTML=''; getArr().forEach((_, i) => list2.append(renderRow(i)));
+    
+          block.append(el('div', { class:'input-wrap' }, { children:[tag, inner] }));
+          secEl.append(block);
+        });
+    
+        secEl.append(addBlock);
+      }
+    
+      function buildRenderRow({ field, getArr, setArr, idxToRow, uidBase }) {
+        return function renderRow(i) {
+          const input = renderInputForField(
+            field,
+            getArr()[i],
+            newVal => {
+              const a = getArr();
+              a[i] = newVal;
+              setArr(a);
+              persist()
+                .then(() => { App.util?.safeUIRefresh?.(); })
+                .catch(()=>{});
+            },
+            i,
+            {
+              row: idxToRow ? idxToRow(i) : undefined,
+              uid: uidBase ? `${uidBase}__i${i}` : undefined
+            }
+          );
+    
+          const tag = el('div', { class: 'mini-tags' });
+          const dup = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
+          const rm  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
+          tag.append(dup, rm);
+    
+          dup.addEventListener('click', async () => {
+            const arr = getArr().slice();
+            const cur = arr[i];
+            const cloned = (cur && typeof cur === 'object') ? structuredClone(cur) : cur;
+            arr.push(cloned);
+            setArr(arr);
+            await persist().catch(()=>{});
+            App.util?.safeUIRefresh?.();
+            App.form?.renderForm?.();
           });
-
-          const renderRow = buildRenderRow({
-            field: entry, getArr, setArr,
-            idxToRow: () => item,
-            uidBase: `${key}__blk${idx}__${entry.name}`
-          });
-
-          getArr().forEach((_, i) => list2.append(renderRow(i)));
-          box.append(list2, add2);
-          inner.append(el('div', { class:'kv' }, { children:[ el('label', {}, { children:[ entry.label || entry.name ] }), box ] }));
-          return;
-        }
-
-        // champ simple non repeatable
-        const r = el('div', { class:'kv' });
-        const l = el('label', {}, { children:[ entry.label || entry.name ] });
-        const cur = (entry.type === 'date')
-          ? (App.util?.getRawForData ? App.util.getRawForData(item, entry.name) : (item[entry.name] ?? ''))
-          : (item[entry.name] ?? (entry.type === 'checkbox' ? false : ''));
-
-        const input = renderInputForField(
-          entry, cur,
-          async (val) => {
-            if (entry.type === 'date' && App.util?.setRawForData) App.util.setRawForData(item, entry.name, val);
-            else item[entry.name] = val;
+    
+          rm.addEventListener('click', async () => {
+            if (!confirm('Voulez-vous vraiment supprimer cet élément ?')) return;
+            const arr = getArr().slice();
+            arr.splice(i, 1);
+            setArr(arr);
             await persist();
-          },
-          idx,
-          { row: item, uid: `${key}__blk${idx}__${entry.name}` }
-        );
-
-        r.append(l, input);
-        attachTip(r, entry);
-        inner.append(r);
-      });
-
-      block.append(el('div', { class:'input-wrap' }, { children:[tag, inner] }));
-      secEl.append(block);
-    });
-
-    secEl.append(addBlock);
-  }
-
-function buildRenderRow({ field, getArr, setArr, idxToRow, uidBase }) {
-  return function renderRow(i) {
-    const input = renderInputForField(
-      field,
-      getArr()[i],
-      newVal => {
-        const a = getArr();
-        a[i] = newVal;
-        setArr(a);
-        persist()
-          .then(() => { App.util.safeUIRefresh(); })
-          .catch(()=>{});
-      },
-      i,
-      {
-        row: idxToRow ? idxToRow(i) : undefined,
-        uid: uidBase ? `${uidBase}__i${i}` : undefined
+            App.form?.refreshProgressUI?.();
+            App.form?.renderForm?.();
+          });
+    
+          const wrap = el('div', { class: 'input-wrap' }, { children: [tag, input] });
+          attachTip(wrap, field);
+          return el('div', { class: 'repeatable-item' }, { children: [wrap] });
+        };
       }
-    );
-
-    const tag = el('div', { class: 'mini-tags' });
-    const dup = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
-    const rm  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
-    tag.append(dup, rm);
-
-    // ---- handlers ----
-    dup.addEventListener('click', async () => {
-      const arr = getArr().slice();
-      const cur = arr[i];
-      const cloned = (cur && typeof cur === 'object') ? structuredClone(cur) : cur;
-      arr.push(cloned); // append
-      setArr(arr);
-    await persist().catch(()=>{});
-    App.util.safeUIRefresh();
-      App.form?.renderForm?.();
-    });
-
-    rm.addEventListener('click', async () => {
-      if (!confirm('Voulez-vous vraiment supprimer cet élément ?')) return;
-      const arr = getArr().slice();
-      arr.splice(i, 1);
-      setArr(arr);
-      await persist();
-      // ➕ MAJ progression (suppression retire une occurrence)
-      App.form?.refreshProgressUI?.();
-      App.form?.renderForm?.();
-    });
-
-    const wrap = el('div', { class: 'input-wrap' }, { children: [tag, input] });
-    attachTip(wrap, field);   // ← ICI
-    return el('div', { class: 'repeatable-item' }, { children: [wrap] });
-  };
-}
-
-// -------- Rendu du formulaire et logique de filtrage
-function renderForm(){
-  const host = $('#formHost') || document.getElementById('formHost') || document.body;
-  if (!host) return;
-
-  // ---- assure l'état
-  if (!App.state) App.state = {};
-  App.form = App.form || {};
-  App.util = App.util || {};
-  // ➜ expose getCA publiquement
-  App.util.getCA = App.util.getCA || (() => App.state?.currentAnalyse || null);
-
-  // === Utilitaires "raw" pour les dates ===
-  // 1) Validation stricte (YYYY-MM-DD complet)
-  App.util.parseDateStrict = App.util.parseDateStrict || function (s) {
-    return (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)) ? s : '';
-  };
-  // 2) Lecture / écriture du texte saisi (même incomplet) pour n'importe quel "row"/"data"
-  App.util.getRawForData = App.util.getRawForData || function (obj, key) {
-    return (obj && obj.__raw && typeof obj.__raw[key] === 'string')
-      ? obj.__raw[key]
-      : (obj?.[key] ?? '');
-  };
-  App.util.setRawForData = App.util.setRawForData || function (obj, key, val) {
-    if (!obj) return;
-    obj.__raw = obj.__raw || {};
-    obj.__raw[key] = String(val ?? '');
-    const parsed = App.util.parseDateStrict(val);
-    obj[key] = parsed || ''; // vide tant que non valide ⇒ "manquant"
-  };
-  // 3) En-tête (même principe)
-  App.util.getRawHeader = App.util.getRawHeader || function (project, key) {
-    project.__rawHeader = project.__rawHeader || {};
-    return project.__rawHeader[key] ?? '';
-  };
-  App.util.setRawHeader = App.util.setRawHeader || function (project, key, val) {
-    project.__rawHeader = project.__rawHeader || {};
-    project.__rawHeader[key] = String(val ?? '');
-  };
-
-  // ---- lecture du localStorage au cold start
-  let LS = {};
-  try { LS = JSON.parse(localStorage.getItem('formState') || '{}') || {}; } catch { LS = {}; }
-
-  // ---- bootstrap (une fois)
-  if (!App.state._bootstrapped) {
-    App.state._bootstrapped = true;
-
-    // 1) Restaurer le projet courante si possible (uniquement si uiList est prêt)
-    if (LS.currentAnalyseId && App.uiList?.findById) {
-      const found = App.uiList.findById(LS.currentAnalyseId);
-      if (found) {
-        App.state.currentAnalyse = found;
+    
+      // -------- Rendu du formulaire + filtrage
+      function renderForm(){
+        const host = $('#formHost') || document.getElementById('formHost') || document.body;
+        if (!host) return;
+    
+        if (!App.state) App.state = {};
+        App.form = App.form || {};
+        App.util = App.util || {};
+        App.util.getCA = App.util.getCA || (() => App.state?.currentAnalyse || null);
+    
+        // Dates strictes + RAW (format à plat + compat legacy)
+        App.util.parseDateStrict = App.util.parseDateStrict || function (s) {
+          return (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)) ? s : '';
+        };
+    
+        App.util.getRawForData = App.util.getRawForData || function (obj, key) {
+          if (!obj) return '';
+          const flat = obj[key + '__raw'];
+          if (typeof flat === 'string') return flat;
+          const legacy = obj.__raw && obj.__raw[key];
+          if (typeof legacy === 'string') return legacy;
+          const plain = obj[key];
+          return (typeof plain === 'string') ? plain : '';
+        };
+    
+        App.util.setRawForData = App.util.setRawForData || function (obj, key, val) {
+          if (!obj || typeof obj !== 'object') return;
+          obj[key + '__raw'] = String(val ?? '');
+          if (obj.__raw && Object.prototype.hasOwnProperty.call(obj.__raw, key)) {
+            delete obj.__raw[key];
+          }
+          const parsed = App?.util?.parseDateStrict ? App.util.parseDateStrict(val) : null;
+          obj[key] = parsed || '';
+        };
+    
+        App.util.getRawHeader = App.util.getRawHeader || function (project, key) {
+          project.__rawHeader = project.__rawHeader || {};
+          return project.__rawHeader[key] ?? '';
+        };
+        App.util.setRawHeader = App.util.setRawHeader || function (project, key, val) {
+          project.__rawHeader = project.__rawHeader || {};
+          project.__rawHeader[key] = String(val ?? '');
+        };
+    
+        // lecture du localStorage
+        let LS = {};
+        try { LS = JSON.parse(localStorage.getItem('formState') || '{}') || {}; } catch { LS = {}; }
+    
+        // bootstrap
+        if (!App.state._bootstrapped) {
+          App.state._bootstrapped = true;
+    
+          if (LS.currentAnalyseId && App.uiList?.findById) {
+            const found = App.uiList.findById(LS.currentAnalyseId);
+            if (found) {
+              App.state.currentAnalyse = found;
+              App.state._explicitAnalyseSelection = true;
+            }
+          }
+    
+          if (LS.panelOpen) App.form._panelOpen = LS.panelOpen;
+          if (LS.multiPage) App.form._multiPage = LS.multiPage;
+    
+          if (typeof LS.showMissingOnly === 'boolean') {
+            App.util.showMissingOnly = LS.showMissingOnly;
+          }
+        }
+    
+        if (!App.state?.currentAnalyse && LS.currentAnalyseId && !App.uiList?.findById) {
+          setTimeout(() => {
+            try {
+              const found = App.uiList?.findById?.(LS.currentAnalyseId);
+              if (found) {
+                App.state.currentAnalyse = found;
+                App.state._explicitAnalyseSelection = true;
+                App.form?.renderForm?.();
+              }
+            } catch {}
+          }, 0);
+        }
+    
+        host.innerHTML = '';
+    
+        if (!App.state.currentAnalyse) {
+          App.uiList?.clearDetail?.();
+          return;
+        }
+    
+        // Sauvegarde immédiate
+        saveLS();
+    
         App.state._explicitAnalyseSelection = true;
-      }
-    }
-
-    // 2) Restaurer états d’UI (panneaux + pages locales)
-    if (LS.panelOpen) App.form._panelOpen = LS.panelOpen;
-    if (LS.multiPage) App.form._multiPage = LS.multiPage;
-
-    // 3) Restaurer le filtre "manquants seulement"
-    if (typeof LS.showMissingOnly === 'boolean') {
-      App.util.showMissingOnly = LS.showMissingOnly;
-    }
-  }
-
-  // Retry doux si uiList n'était pas prêt au premier passage
-  if (!App.state?.currentAnalyse && LS.currentAnalyseId && !App.uiList?.findById) {
-    setTimeout(() => {
-      try {
-        const found = App.uiList?.findById?.(LS.currentAnalyseId);
-        if (found) {
-          App.state.currentAnalyse = found;
-          App.state._explicitAnalyseSelection = true;
-          App.form?.renderForm?.(); // re-render pour appliquer l'état restauré
+        if (!App.state.currentAnalyse.data) App.state.currentAnalyse.data = {};
+    
+        const MULTI = Array.isArray(App?.model?.PROCESSES) && (App.model.PROCESSES.length > 0) ? App.model.PROCESSES : null;
+    
+        // Pager global (mono-process uniquement)
+        App.util?.clampPage?.();
+        if (!MULTI) App.util?.renderPager?.(host);
+    
+        // Filtre "manquants"
+        if (App.util?.showMissingOnly){
+          window.FILTER_SNAPSHOT = buildFilterSnapshot(App.state.currentAnalyse);
+        } else {
+          window.FILTER_SNAPSHOT = null;
         }
-      } catch {}
-    }, 0);
-  }
-
-  host.innerHTML = '';
-
-  // ---- si aucun projet, on reste sur la liste
-  if (!App.state.currentAnalyse) {
-    App.uiList?.clearDetail?.();
-    return;
-  }
-
-  // Sauvegarde immédiate de l'état courant (project + UI)
-  saveLS();
-
-  App.state._explicitAnalyseSelection = true;
-  if (!App.state.currentAnalyse.data) App.state.currentAnalyse.data = {};
-
-  const MULTI = Array.isArray(App?.model?.PROCESSES) && (App.model.PROCESSES.length > 0) ? App.model.PROCESSES : null;
-
-  // Pager global UNIQUEMENT en mode mono-processus
-  App.util?.clampPage?.();
-  if (!MULTI) App.util?.renderPager?.(host);
-
-  // Filtre "champs manquants" : snapshot si actif
-  if (App.util?.showMissingOnly){
-    window.FILTER_SNAPSHOT = buildFilterSnapshot(App.state.currentAnalyse);
-  } else {
-    window.FILTER_SNAPSHOT = null;
-  }
-  const SNAP = window.FILTER_SNAPSHOT;
-
-  // --- Toggle "Actif / Inactif"
-  (function renderMissingToggle(){
-    const bar = document.getElementById('missingToggleBar') || el('div', { id:'missingToggleBar', class:'toolbar' });
-    const btn = bar.querySelector('button') || el('button', { class:'btn sm ghost', type:'button' });
-    btn.textContent = App.util?.showMissingOnly ? 'Actif : manquants seulement' : 'Inactif : tout afficher';
-    btn.setAttribute('aria-pressed', App.util?.showMissingOnly ? 'true' : 'false');
-    btn.onclick = () => {
-      App.util.showMissingOnly = !App.util.showMissingOnly;
-      window.FILTER_SNAPSHOT = App.util.showMissingOnly ? buildFilterSnapshot(App.state.currentAnalyse) : null;
-      saveLS();
-      App.form?.renderForm?.();
-    };
-    if (!bar.contains(btn)) bar.append(btn);
-    if (!host.querySelector('#missingToggleBar')) host.prepend(bar);
-  })();
-
-  // Migration douce fichiers (sécurisé)
-  try {
-    const a = App.state?.currentAnalyse;
-    if (a) {
-      const data = (a.data ||= {});
-      if (!data.__files_migrated_v2) {
-        data.__files_migrated_v2 = true;
-        persist().catch(() => {});
-      }
-    }
-  } catch {}
-
-  // Helpers
-  const afterPersist = async () => {
-    await persist();
-    App.form?.refreshProgressUI?.();
-    if (App.util?.showMissingOnly && App.util.getCA()) {
-      const { pct, filled, total } = computeProgress(App.util.getCA());
-      updateCompletionBannerUI(pct, filled, total);
-    }
-  };
-
-  const computeIndexesForFilter = (allIdx, getSet) => {
-    if (!App.util?.showMissingOnly) return allIdx;
-    const set = getSet?.() || new Set();
-    return allIdx.filter(i => set.has(i));
-  };
-
-  // ========= PAGE EN-TÊTE (page 0) =========
-  if ((App.util?.currentPage ?? 0) === 0){
-    const sec = el('div', { class:'section' });
-    sec.append(el('h3',{}, {children:['En-tête']}));
-
-    // --- Titre
-    const rowTitle = el('div', { class:'kv' });
-    const inpTitle = el('input', {
-      id:'hdr_title', type:'text',
-      value: App.state.currentAnalyse.title || '',
-      placeholder:'Titre',
-      'aria-label':'Nom du projet concerné'
-    });
-    inpTitle.addEventListener('input', async (e)=>{
-      if (!App.state?.currentAnalyse) return;
-      App.state.currentAnalyse.title = e.target.value;
-      await afterPersist();
-    });
-    rowTitle.append(el('label',{for:'hdr_title'},{children:['Titre']}), inpTitle);
-    sec.append(rowTitle);
-
-    // --- Date (header) — conserve l'incomplet
-    const rowDate = el('div', { class:'kv' });
-    const rawDate =
-      (App?.util?.getRawHeader && App.state?.currentAnalyse
-        ? (App.util.getRawHeader(App.state.currentAnalyse, 'headerDate') || '')
-        : '') || (App.state?.currentAnalyse?.date || '');
-
-    const inpDate = el('input', {
-      id:'hdr_date',
-      type:'text',
-      inputmode:'numeric',
-      placeholder:'YYYY-MM-DD',
-      value: rawDate,
-      'aria-label':'Date du projet'
-    });
-    const hint = el('div', { class:'muted', style:'margin-top:2px' }, { children:[''] });
-
-    async function syncHeaderDate(val){
-      const project = App?.state?.currentAnalyse;
-      if (!project) return;
-      if (App.util?.setRawHeader) App.util.setRawHeader(project, 'headerDate', val);
-      const ok = App.util.parseDateStrict(val);
-      project.date = ok || '';
-      hint.textContent = ok ? '' : (val ? 'Format attendu : YYYY-MM-DD' : '');
-      inpDate.classList.toggle('invalid', !ok && !!val);
-      await afterPersist();
-    }
-    inpDate.addEventListener('input', e => { syncHeaderDate(e.target.value); });
-    setTimeout(() => { if (App?.state?.currentAnalyse) syncHeaderDate(rawDate); }, 0);
-
-    rowDate.append(
-      el('label', { for:'hdr_date' }, { children:['Date'] }),
-      el('div', {}, { children:[inpDate, hint] })
-    );
-    sec.append(rowDate);
-
-    host.append(sec);
-  }
-
-  // ===== Helpers de filtrage "manquants seulement" =====
-  function isMissingValue(f, v){
-    if (App.util?.isFilled) return !App.util.isFilled(f, v);
-    if (f?.type === 'checkbox') return !(v === true || v === false);
-    if (f?.type === 'date')     return !App.util?.parseDateStrict?.(v);
-    if (f?.type === 'file'){
-      if (Array.isArray(v)) return v.length === 0;
-      if (v && typeof v === 'object') return !v.name && !v.url && !v.path;
-      return !v;
-    }
-    if (Array.isArray(v)) return v.length === 0;
-    return v === '' || v == null;
-  }
-
-  function groupOccHasMissing(entryGroup, obj){
-    return (entryGroup.fields||[]).some(sf=>{
-      if (!sf) return false;
-      if (sf.repeatable){
-        const arr = Array.isArray(obj?.[sf.name]) ? obj[sf.name] : [];
-        return arr.some(v => isMissingValue(sf, v));
-      }
-      return isMissingValue(sf, obj?.[sf.name]);
-    });
-  }
-  function blockHasMissing(section, item){
-    return (section.fields||[]).some(entry=>{
-      if (entry && entry.group && Array.isArray(entry.fields)){
-        const g = entry.group;
-        if (g.repeatable){
-          const GKEY = `__grp__${g.name}`;
-          const arr = Array.isArray(item?.[GKEY]) ? item[GKEY] : [];
-          return arr.some(obj => groupOccHasMissing(entry, obj));
+        const SNAP = window.FILTER_SNAPSHOT;
+    
+        // Toggle barre filtre
+        (function renderMissingToggle(){
+          const bar = document.getElementById('missingToggleBar') || el('div', { id:'missingToggleBar', class:'toolbar' });
+          const btn = bar.querySelector('button') || el('button', { class:'btn sm ghost', type:'button' });
+          btn.textContent = App.util?.showMissingOnly ? 'Actif : manquants seulement' : 'Inactif : tout afficher';
+          btn.setAttribute('aria-pressed', App.util?.showMissingOnly ? 'true' : 'false');
+          btn.onclick = () => {
+            App.util.showMissingOnly = !App.util.showMissingOnly;
+            window.FILTER_SNAPSHOT = App.util.showMissingOnly ? buildFilterSnapshot(App.state.currentAnalyse) : null;
+            saveLS();
+            App.form?.renderForm?.();
+          };
+          if (!bar.contains(btn)) bar.append(btn);
+          if (!host.querySelector('#missingToggleBar')) host.prepend(bar);
+        })();
+    
+        // Migration douce fichiers (flag)
+        try {
+          const a = App.state?.currentAnalyse;
+          if (a) {
+            const data = (a.data ||= {});
+            if (!data.__files_migrated_v2) {
+              data.__files_migrated_v2 = true;
+              persist().catch(() => {});
+            }
+          }
+        } catch {}
+    
+        const afterPersist = async () => {
+          await persist();
+          App.form?.refreshProgressUI?.();
+          if (App.util?.showMissingOnly && App.util.getCA()) {
+            const { pct, filled, total } = computeProgress(App.util.getCA());
+            updateCompletionBannerUI(pct, filled, total);
+          }
+        };
+    
+        // ========= PAGE EN-TÊTE (page 0) =========
+        if ((App.util?.currentPage ?? 0) === 0){
+          const sec = el('div', { class:'section' });
+          sec.append(el('h3',{}, {children:['En-tête']}));
+    
+          // Titre
+          const rowTitle = el('div', { class:'kv' });
+          const inpTitle = el('input', {
+            id:'hdr_title', type:'text',
+            value: App.state.currentAnalyse.title || '',
+            placeholder:'Titre',
+            'aria-label':'Nom du projet concerné'
+          });
+          inpTitle.addEventListener('input', async (e)=>{
+            if (!App.state?.currentAnalyse) return;
+            App.state.currentAnalyse.title = e.target.value;
+            await afterPersist();
+          });
+          rowTitle.append(el('label',{for:'hdr_title'},{children:['Titre']}), inpTitle);
+          sec.append(rowTitle);
+    
+          // Date (header) — conserve l'incomplet
+          const rowDate = el('div', { class:'kv' });
+          const rawDate =
+            (App?.util?.getRawHeader && App.state?.currentAnalyse
+              ? (App.util.getRawHeader(App.state.currentAnalyse, 'headerDate') || '')
+              : '') || (App.state?.currentAnalyse?.date || '');
+    
+          const inpDate = el('input', {
+            id:'hdr_date',
+            type:'text',
+            inputmode:'numeric',
+            placeholder:'YYYY-MM-DD',
+            value: rawDate,
+            'aria-label':'Date du projet'
+          });
+          const hint = el('div', { class:'muted', style:'margin-top:2px' }, { children:[''] });
+    
+          async function syncHeaderDate(val){
+            const project = App?.state?.currentAnalyse;
+            if (!project) return;
+            if (App.util?.setRawHeader) App.util.setRawHeader(project, 'headerDate', val);
+            const ok = App.util.parseDateStrict(val);
+            project.date = ok || '';
+            hint.textContent = ok ? '' : (val ? 'Format attendu : YYYY-MM-DD' : '');
+            inpDate.classList.toggle('invalid', !ok && !!val);
+            await afterPersist();
+          }
+          inpDate.addEventListener('input', e => { syncHeaderDate(e.target.value); });
+          setTimeout(() => { if (App?.state?.currentAnalyse) syncHeaderDate(rawDate); }, 0);
+    
+          rowDate.append(
+            el('label', { for:'hdr_date' }, { children:['Date'] }),
+            el('div', {}, { children:[inpDate, hint] })
+          );
+          sec.append(rowDate);
+    
+          host.append(sec);
         }
-        return groupOccHasMissing(entry, item);
-      }
-      if (!entry) return false;
-      if (entry.repeatable){
-        const arr = Array.isArray(item?.[entry.name]) ? item[entry.name] : [];
-        return arr.some(v => isMissingValue(entry, v));
-      }
-      return isMissingValue(entry, item?.[entry.name]);
-    });
-  }
-
-  // ========= Rendu d'UNE SECTION =========
-function renderOneSection(targetHost, section, sidx){
-  const sectionKey = App?.model?.sectionKeyOf ? App.model.sectionKeyOf(section, sidx) : `section-${sidx+1}`;
-  const secSnap = window.FILTER_SNAPSHOT?.sections?.[sectionKey];
-
-  const sectionNode = el('div', { class:'section', 'aria-labelledby':`sec-${sidx}` });
-  sectionNode.append(el('h3', { id:`sec-${sidx}` }, { children:[ section?.title || `Section ${sidx+1}` ] }));
-
-  // ---------- Section RÉPÉTABLE ----------
-  if (section?.repeatable) {
-    const data = (App.state.currentAnalyse.data ||= {});
-    const items = (Array.isArray(data[sectionKey]) ? data[sectionKey] : (data[sectionKey] = []));
-
-    const renderBlock = (i) => {
-      const item = items[i] || (items[i] = {});
-      if (App.util?.showMissingOnly && !blockHasMissing(section, item)) return null;
-
-      const outer = el('div', { class:'repeatable-item' });
-      const inner = el('div', { class:'input-wrap' });
-
-      // actions du bloc
-      const tag = el('div', { class:'mini-tags' });
-      const btnDup = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
-      const btnDel = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
-      tag.append(btnDup, btnDel);
-
-      btnDup.addEventListener('click', async ()=>{
-        items.splice(i+1, 0, structuredClone(item));
-        await persist(); App.form?.renderForm?.();
-      });
-      btnDel.addEventListener('click', async ()=>{
-        if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return;
-        items.splice(i, 1);
-        await persist(); App.form?.renderForm?.();
-      });
-
-      (section.fields||[]).forEach(f=>{
-        // ----- GROUPE -----
-        if (f && f.group && Array.isArray(f.fields)) {
-          const g = f.group;
-
-          // groupe répétable dans un bloc
-          if (g.repeatable) {
-            const GKEY = `__grp__${g.name}`;
-            if (!Array.isArray(item[GKEY])) item[GKEY] = [];
-
-            const row  = el('div', { class:'kv' });
-            const lab  = el('label', {}, { children:[ g.label || g.name ] });
-            const list = el('div', { class:'repeatable' });
-
-            const renderOcc = (j) => {
-              const obj = item[GKEY][j] || (item[GKEY][j] = {});
-              if (App.util?.showMissingOnly && !groupOccHasMissing(f, obj)) return null;
-
-              const cell = el('div', { class:'repeatable-item' });
-              const wrap = el('div', { class:'input-wrap' });
-
-              const tag2 = el('div', { class:'mini-tags' });
-              const dup2 = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
-              const rm2  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
-              tag2.append(dup2, rm2);
-
-              dup2.addEventListener('click', async ()=>{
-                item[GKEY].push(structuredClone(obj));
+    
+        // ===== Helpers de filtrage "manquants seulement" =====
+        function isMissingValue(f, v){
+          if (App.util?.isFilled) return !App.util.isFilled(f, v);
+          if (f?.type === 'checkbox') return !(v === true || v === false);
+          if (f?.type === 'date')     return !App.util?.parseDateStrict?.(v);
+          if (f?.type === 'file'){
+            if (Array.isArray(v)) return v.length === 0;
+            if (v && typeof v === 'object') return !v.name && !v.url && !v.path;
+            return !v;
+          }
+          if (Array.isArray(v)) return v.length === 0;
+          return v === '' || v == null;
+        }
+        function groupOccHasMissing(entryGroup, obj){
+          return (entryGroup.fields||[]).some(sf=>{
+            if (!sf) return false;
+            if (sf.repeatable){
+              const arr = Array.isArray(obj?.[sf.name]) ? obj[sf.name] : [];
+              return arr.some(v => isMissingValue(sf, v));
+            }
+            return isMissingValue(sf, obj?.[sf.name]);
+          });
+        }
+        function blockHasMissing(section, item){
+          return (section.fields||[]).some(entry=>{
+            if (entry && entry.group && Array.isArray(entry.fields)){
+              const g = entry.group;
+              if (g.repeatable){
+                const GKEY = `__grp__${g.name}`;
+                const arr = Array.isArray(item?.[GKEY]) ? item[GKEY] : [];
+                return arr.some(obj => groupOccHasMissing(entry, obj));
+              }
+              return groupOccHasMissing(entry, item);
+            }
+            if (!entry) return false;
+            if (entry.repeatable){
+              const arr = Array.isArray(item?.[entry.name]) ? item[entry.name] : [];
+              return arr.some(v => isMissingValue(entry, v));
+            }
+            return isMissingValue(entry, item?.[entry.name]);
+          });
+        }
+    
+        // ========= Rendu d'UNE SECTION (mode pager mono/multi) =========
+        function renderOneSection(targetHost, section, sidx){
+          const sectionKey = App?.model?.sectionKeyOf ? App.model.sectionKeyOf(section, sidx) : `section-${sidx+1}`;
+          const sectionNode = el('div', { class:'section', 'aria-labelledby':`sec-${sidx}` });
+          sectionNode.append(el('h3', { id:`sec-${sidx}` }, { children:[ section?.title || `Section ${sidx+1}` ] }));
+    
+          // Section répétable
+          if (section?.repeatable) {
+            const data = (App.state.currentAnalyse.data ||= {});
+            const items = (Array.isArray(data[sectionKey]) ? data[sectionKey] : (data[sectionKey] = []));
+    
+            const renderBlock = (i) => {
+              const item = items[i] || (items[i] = {});
+              if (App.util?.showMissingOnly && !blockHasMissing(section, item)) return null;
+    
+              const outer = el('div', { class:'repeatable-item' });
+              const inner = el('div', { class:'input-wrap' });
+    
+              const tag = el('div', { class:'mini-tags' });
+              const btnDup = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
+              const btnDel = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
+              tag.append(btnDup, btnDel);
+    
+              btnDup.addEventListener('click', async ()=>{
+                items.splice(i+1, 0, structuredClone(item));
                 await persist(); App.form?.renderForm?.();
               });
-              rm2.addEventListener('click', async ()=>{
+              btnDel.addEventListener('click', async ()=>{
                 if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return;
-                item[GKEY].splice(j, 1);
+                items.splice(i, 1);
                 await persist(); App.form?.renderForm?.();
               });
-
-              (f.fields || []).forEach(sf => {
-                if (sf.repeatable) {
-                  if (!Array.isArray(obj[sf.name])) obj[sf.name] = [];
-                  const all = obj[sf.name];
-                  const idxs = App.util?.showMissingOnly
-                    ? all.map((v,k)=> isMissingValue(sf,v) ? k : -1).filter(k=>k>=0)
-                    : all.map((_,k)=>k);
-
-                  if (!idxs.length && App.util?.showMissingOnly) return;
-
-                  const list = el('div', { class:'repeatable-items' });
-                  const getArr = () => obj[sf.name];
-                  const setArr = (a) => { obj[sf.name] = a; };
-
-                  const renderRow = buildRenderRow({
-                    field: sf, getArr, setArr,
-                    idxToRow: () => obj,
-                    uidBase: `${sectionKey}__blk${i}__grp_${g.name}__${sf.name}__i${j}`
+    
+              (section.fields||[]).forEach(f=>{
+                // groupe
+                if (f && f.group && Array.isArray(f.fields)) {
+                  const g = f.group;
+    
+                  if (g.repeatable) {
+                    const GKEY = `__grp__${g.name}`;
+                    if (!Array.isArray(item[GKEY])) item[GKEY] = [];
+    
+                    const row  = el('div', { class:'kv' });
+                    const lab  = el('label', {}, { children:[ g.label || g.name ] });
+                    const list = el('div', { class:'repeatable' });
+    
+                    const renderOcc = (j) => {
+                      const obj = item[GKEY][j] || (item[GKEY][j] = {});
+                      if (App.util?.showMissingOnly && !groupOccHasMissing(f, obj)) return null;
+    
+                      const cell = el('div', { class:'repeatable-item' });
+                      const wrap = el('div', { class:'input-wrap' });
+    
+                      const tag2 = el('div', { class:'mini-tags' });
+                      const dup2 = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
+                      const rm2  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
+                      tag2.append(dup2, rm2);
+    
+                      dup2.addEventListener('click', async ()=>{
+                        item[GKEY].push(structuredClone(obj));
+                        await persist(); App.form?.renderForm?.();
+                      });
+                      rm2.addEventListener('click', async ()=>{
+                        if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return;
+                        item[GKEY].splice(j, 1);
+                        await persist(); App.form?.renderForm?.();
+                      });
+    
+                      (f.fields || []).forEach(sf => {
+                        if (sf.repeatable) {
+                          if (!Array.isArray(obj[sf.name])) obj[sf.name] = [];
+                          const all = obj[sf.name];
+                          const idxs = App.util?.showMissingOnly
+                            ? all.map((v,k)=> isMissingValue(sf,v) ? k : -1).filter(k=>k>=0)
+                            : all.map((_,k)=>k);
+    
+                          if (!idxs.length && App.util?.showMissingOnly) return;
+    
+                          const list = el('div', { class:'repeatable-items' });
+                          const getArr = () => obj[sf.name];
+                          const setArr = (a) => { obj[sf.name] = a; };
+    
+                          const renderRow = buildRenderRow({
+                            field: sf, getArr, setArr,
+                            idxToRow: () => obj,
+                            uidBase: `${sectionKey}__blk${i}__grp_${g.name}__${sf.name}__i${j}`
+                          });
+    
+                          idxs.forEach(k => list.append(renderRow(k)));
+    
+                          const children = [list];
+                          if (!App.util?.showMissingOnly) {
+                            const add = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
+                            add.addEventListener('click', async ()=>{
+                              const a = getArr().slice();
+                              a.push(sf.type === 'checkbox' ? false : '');
+                              setArr(a);
+                              await persist(); App.form?.renderForm?.();
+                            });
+                            children.push(add);
+                          }
+    
+                          const row = el('div', { class:'kv' }, {
+                            children: [
+                              el('label', {}, { children:[ sf.label || sf.name ] }),
+                              el('div', {}, { children })
+                            ]
+                          });
+                          wrap.append(row);
+                          return;
+                        }
+    
+                        const cur = (sf.type === 'date')
+                          ? (App.util?.getRawForData ? App.util.getRawForData(obj, sf.name) : (obj[sf.name] ?? ''))
+                          : (obj[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
+                        if (App.util?.showMissingOnly && !isMissingValue(sf, cur)) return;
+    
+                        const r = el('div', { class:'kv' });
+                        const l = el('label', {}, { children:[ sf.label || sf.name ] });
+                        const input = renderInputForField(
+                          sf, cur,
+                          async v => {
+                            if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(obj, sf.name, v);
+                            else obj[sf.name] = v;
+                            await persist();
+                          },
+                          null,
+                          { row: obj, uid: `${sectionKey}__blk${i}__grp_${g.name}__${sf.name}__i${j}` }
+                        );
+                        r.append(l, input);
+                        attachTip(r, sf);
+                        wrap.append(r);
+                      });
+    
+                      cell.append(el('div', { class:'input-wrap' }, { children:[tag2, wrap] }));
+                      return cell;
+                    };
+    
+                    item[GKEY].forEach((_, j) => {
+                      const n = renderOcc(j);
+                      if (n) list.append(n);
+                    });
+    
+                    if (App.util?.showMissingOnly && !list.childElementCount) return;
+    
+                    const children = [list];
+                    if (!App.util?.showMissingOnly) {
+                      const addGrp = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
+                      addGrp.addEventListener('click', async () => {
+                        item[GKEY].push({});
+                        await persist();
+                        App.form?.renderForm?.();
+                      });
+                      children.push(addGrp);
+                    }
+                    row.append(lab, el('div', {}, { children }));
+    
+                    inner.append(row);
+                    return;
+                  }
+    
+                  // groupe simple
+                  const legend = el('label', { class:'group-legend' }, { children:[ g.label || g.name ] });
+                  const gWrap  = el('div', { class:'section group-wrap' });
+                  let painted = 0;
+                  (f.fields||[]).forEach(sf=>{
+                    const cur = (sf.type==='date')
+                      ? (App.util?.getRawForData ? App.util.getRawForData(item, sf.name) : (item[sf.name] ?? ''))
+                      : (item[sf.name] ?? (sf.type==='checkbox'?false:''));
+                    if (App.util?.showMissingOnly && !isMissingValue(sf, cur)) return;
+                    const r = el('div', { class:'kv' });
+                    const l = el('label', {}, { children:[ sf.label || sf.name ] });
+                    const input = renderInputForField(
+                      sf, cur,
+                      async v=>{
+                        if (sf.type==='date' && App.util?.setRawForData) App.util.setRawForData(item, sf.name, v);
+                        else item[sf.name] = v;
+                        await persist();
+                      },
+                      `${i}`,
+                      { row: item, uid: `${sectionKey}__blk${i}__${sf.name}` }
+                    );
+                    r.append(l, input);
+                    attachTip(r, sf);
+                    gWrap.append(r);
+                    painted++;
                   });
-
+                  if (painted) inner.append(el('div', { class:'kv' }, { children:[ legend, gWrap ] }));
+                  return;
+                }
+    
+                // champ répétable (dans bloc)
+                if (f?.repeatable){
+                  const getArr = () => {
+                    const a = Array.isArray(item[f.name]) ? item[f.name] : (item[f.name] = []);
+                    return a;
+                  };
+                  const all = getArr();
+                  const idxs = App.util?.showMissingOnly
+                    ? all.map((v,k)=> isMissingValue(f,v) ? k : -1).filter(k=>k>=0)
+                    : all.map((_,k)=>k);
+    
+                  if (!idxs.length && App.util?.showMissingOnly) return;
+    
+                  const list = el('div', { class:'repeatable-items' });
+                  const setArr = (a)=>{ item[f.name] = a; };
+                  const renderRow = buildRenderRow({
+                    field: f, getArr, setArr,
+                    idxToRow: ()=> item,
+                    uidBase: `${sectionKey}__blk${i}__${f.name}`
+                  });
+    
                   idxs.forEach(k => list.append(renderRow(k)));
-
+    
                   const children = [list];
                   if (!App.util?.showMissingOnly) {
                     const add = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
                     add.addEventListener('click', async ()=>{
                       const a = getArr().slice();
-                      a.push(sf.type === 'checkbox' ? false : '');
+                      a.push(f.type==='checkbox' ? false : '');
                       setArr(a);
                       await persist(); App.form?.renderForm?.();
                     });
                     children.push(add);
                   }
-
-                  const row = el('div', { class:'kv' }, {
-                    children: [
-                      el('label', {}, { children:[ sf.label || sf.name ] }),
-                      el('div', {}, { children })
-                    ]
-                  });
-                  wrap.append(row);
+    
+                  inner.append(el('div', { class:'kv' }, {
+                    children:[ el('label',{}, {children:[ f.label || f.name ]}), el('div',{}, {children}) ]
+                  }));
                   return;
                 }
-
-                const cur = (sf.type === 'date')
-                  ? (App.util?.getRawForData ? App.util.getRawForData(obj, sf.name) : (obj[sf.name] ?? ''))
-                  : (obj[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
+    
+                // champ simple (dans bloc)
+                const cur = (f.type==='date')
+                  ? (App.util?.getRawForData ? App.util.getRawForData(item, f.name) : (item[f.name] ?? ''))
+                  : (item[f.name] ?? (f.type==='checkbox'?false:''));
+                if (App.util?.showMissingOnly && !isMissingValue(f, cur)) return;
+    
+                const r = el('div', { class:'kv' });
+                const l = el('label', {}, { children:[ f.label || f.name ] });
+                const input = renderInputForField(
+                  f, cur,
+                  async v=>{
+                    if (f.type==='date' && App.util?.setRawForData) App.util.setRawForData(item, f.name, v);
+                    else item[f.name] = v;
+                    await persist();
+                  },
+                  `${i}`,
+                  { row: item, uid:`${sectionKey}__blk${i}__${f.name}` }
+                );
+                r.append(l, input);
+                attachTip(r, f);
+                inner.append(r);
+              });
+    
+              outer.append(el('div', { class:'input-wrap' }, { children:[tag, inner] }));
+              return outer;
+            };
+    
+            const container = el('div', { class:'repeatable' });
+            items.forEach((_, i) => {
+              const node = renderBlock(i);
+              if (node) container.append(node);
+            });
+    
+            const nodes = [container];
+            if (!App.util?.showMissingOnly) {
+              const addBlock = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter un bloc'] });
+              addBlock.addEventListener('click', async ()=>{
+                items.push({});
+                await persist(); App.form?.renderForm?.();
+              });
+              nodes.push(addBlock);
+            }
+    
+            sectionNode.append(...nodes);
+            targetHost.append(sectionNode);
+            return;
+          }
+    
+          // Section non répétable
+          const kv = el('div', { class:'kv' });
+          const DATA = (App.state.currentAnalyse.data ||= {});
+          const ROW  = (DATA[sectionKey] ||= {});
+    
+          (section.fields||[]).forEach(f=>{
+            // groupe
+            if (f && f.group && Array.isArray(f.fields)) {
+              const g = f.group;
+    
+              if (g.repeatable) {
+                const KEY = `__grp__${g.name}`;
+                if (!Array.isArray(ROW[KEY])) ROW[KEY] = [];
+    
+                const lab  = el('label', {}, { children:[ g.label || g.name ] });
+                const list = el('div', { class:'repeatable' });
+    
+                const renderOcc = (i) => {
+                  const obj = ROW[KEY][i] || (ROW[KEY][i] = {});
+                  if (App.util?.showMissingOnly && !groupOccHasMissing(f, obj)) return null;
+    
+                  const item  = el('div', { class:'repeatable-item' });
+                  const iwrap = el('div', { class:'input-wrap' });
+    
+                  const tag = el('div', { class:'mini-tags' });
+                  const dup = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
+                  const rm  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
+                  tag.append(dup, rm);
+    
+                  dup.addEventListener('click', async ()=>{ ROW[KEY].push(structuredClone(obj)); await persist(); App.form?.renderForm?.(); });
+                  rm.addEventListener('click', async ()=>{ if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return; ROW[KEY].splice(i,1); await persist(); App.form?.renderForm?.(); });
+    
+                  (f.fields || []).forEach(sf => {
+                    if (sf.repeatable) {
+                      if (!Array.isArray(obj[sf.name])) obj[sf.name] = [];
+                      const all  = obj[sf.name];
+                      const idxs = App.util?.showMissingOnly
+                        ? all.map((v,k)=> isMissingValue(sf,v) ? k : -1).filter(k=>k>=0)
+                        : all.map((_,k)=>k);
+    
+                      if (!idxs.length && App.util?.showMissingOnly) return;
+    
+                      const list = el('div', { class:'repeatable-items' });
+                      const getArr = () => obj[sf.name];
+                      const setArr = (a) => { obj[sf.name] = a; };
+    
+                      const renderRow = buildRenderRow({
+                        field: sf, getArr, setArr,
+                        idxToRow: () => obj,
+                        uidBase: `${sectionKey}__grp_${g.name}__${sf.name}__i${i}`
+                      });
+    
+                      idxs.forEach(k => list.append(renderRow(k)));
+    
+                      const children = [list];
+                      if (!App.util?.showMissingOnly) {
+                        const add = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
+                        add.addEventListener('click', async ()=>{
+                          const a = getArr().slice();
+                          a.push(sf.type === 'checkbox' ? false : '');
+                          setArr(a);
+                          await persist(); App.form?.renderForm?.();
+                        });
+                        children.push(add);
+                      }
+    
+                      const row = el('div', { class:'kv' }, {
+                        children: [
+                          el('label', {}, { children:[ sf.label || sf.name ] }),
+                          el('div', {}, { children })
+                        ]
+                      });
+                      iwrap.append(row);
+                      return;
+                    }
+    
+                    const cur = (sf.type === 'date')
+                      ? (App.util?.getRawForData ? App.util.getRawForData(obj, sf.name) : (obj[sf.name] ?? ''))
+                      : (obj[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
+                    if (App.util?.showMissingOnly && !isMissingValue(sf, cur)) return;
+    
+                    const r = el('div', { class:'kv' });
+                    const l = el('label', {}, { children:[ sf.label || sf.name ] });
+                    const input = renderInputForField(
+                      sf, cur,
+                      async v => {
+                        if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(obj, sf.name, v);
+                        else obj[sf.name] = v;
+                        await persist();
+                      },
+                      null,
+                      { row: obj, uid:`${sectionKey}__grp_${g.name}__${sf.name}__i${i}` }
+                    );
+                    r.append(l, input);
+                    attachTip(r, sf);
+                    iwrap.append(r);
+                  });
+    
+                  item.append(el('div', { class:'input-wrap' }, { children:[tag, iwrap] }));
+                  return item;
+                };
+    
+                ROW[KEY].forEach((_, i) => {
+                  const n = renderOcc(i);
+                  if (n) list.append(n);
+                });
+    
+                if (App.util?.showMissingOnly && !list.childElementCount) {
+                  return;
+                }
+    
+                const wrap = el('div');
+                wrap.append(list);
+                if (!App.util?.showMissingOnly) {
+                  const addGrp2 = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
+                  addGrp2.addEventListener('click', async () => {
+                    ROW[KEY].push({});
+                    await persist();
+                    App.form?.renderForm?.();
+                  });
+                  wrap.append(addGrp2);
+                }
+    
+                kv.append(lab, wrap);
+                sectionNode.append(kv);
+                targetHost.append(sectionNode);
+                return;
+              }
+    
+              // groupe simple (aplati)
+              const legend = el('label', { class:'group-legend' }, { children:[ g.label || g.name ] });
+              const gWrap  = el('div', { class:'section group-wrap' });
+              let painted = 0;
+              (f.fields||[]).forEach(sf=>{
+                const cur = (sf.type==='date')
+                  ? (App.util?.getRawForData ? App.util.getRawForData(ROW, sf.name) : (ROW[sf.name] ?? ''))
+                  : (ROW[sf.name] ?? (sf.type==='checkbox'?false:''));
                 if (App.util?.showMissingOnly && !isMissingValue(sf, cur)) return;
-
                 const r = el('div', { class:'kv' });
                 const l = el('label', {}, { children:[ sf.label || sf.name ] });
                 const input = renderInputForField(
                   sf, cur,
-                  async v => {
-                    if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(obj, sf.name, v);
-                    else obj[sf.name] = v;
+                  async v=>{
+                    if (sf.type==='date' && App.util?.setRawForData) App.util.setRawForData(ROW, sf.name, v);
+                    else ROW[sf.name] = v;
                     await persist();
                   },
                   null,
-                  { row: obj, uid: `${sectionKey}__blk${i}__grp_${g.name}__${sf.name}__i${j}` }
+                  { row: ROW, uid:`${sectionKey}__grp_${g.name}__${sf.name}` }
                 );
                 r.append(l, input);
                 attachTip(r, sf);
-                wrap.append(r);
+                gWrap.append(r);
+                painted++;
               });
-
-              cell.append(el('div', { class:'input-wrap' }, { children:[tag2, wrap] }));
-              return cell;
-            };
-
-            item[GKEY].forEach((_, j) => {
-              const n = renderOcc(j);
-              if (n) list.append(n);
-            });
-
-            // ⬇️ si filtre actif et rien à afficher pour ce groupe → cacher label + bouton
-            if (App.util?.showMissingOnly && !list.childElementCount) return;
-
-            const children = [list];
-            if (!App.util?.showMissingOnly) {
-              const addGrp = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
-              addGrp.addEventListener('click', async () => {
-                item[GKEY].push({});
-                await persist();
-                App.form?.renderForm?.();
-              });
-              children.push(addGrp);
+              if (painted){
+                kv.append(legend, gWrap);
+                sectionNode.append(kv);
+                targetHost.append(sectionNode);
+              }
+              return;
             }
-            row.append(lab, el('div', {}, { children }));
-
-            inner.append(row);
-            return;
-          }
-
-          // groupe simple
-          const legend = el('label', { class:'group-legend' }, { children:[ g.label || g.name ] });
-          const gWrap  = el('div', { class:'section group-wrap' });
-          let painted = 0;
-          (f.fields||[]).forEach(sf=>{
-            const cur = (sf.type==='date')
-              ? (App.util?.getRawForData ? App.util.getRawForData(item, sf.name) : (item[sf.name] ?? ''))
-              : (item[sf.name] ?? (sf.type==='checkbox'?false:''));
-            if (App.util?.showMissingOnly && !isMissingValue(sf, cur)) return;
-            const r = el('div', { class:'kv' });
-            const l = el('label', {}, { children:[ sf.label || sf.name ] });
-            const input = renderInputForField(
-              sf, cur,
-              async v=>{
-                if (sf.type==='date' && App.util?.setRawForData) App.util.setRawForData(item, sf.name, v);
-                else item[sf.name] = v;
-                await persist();
-              },
-              `${i}`,
-              { rd: `${sectionKey}__blk${i}__${sf.name}` }
-            );
-            r.append(l, input);
-            attachTip(r, sf);
-            gWrap.append(r);
-            painted++;
-          });
-          if (painted) inner.append(el('div', { class:'kv' }, { children:[ legend, gWrap ] }));
-          return;
-        }
-
-        // ----- CHAMP répétable (dans bloc)
-        if (f?.repeatable){
-          const getArr = () => {
-            const a = Array.isArray(item[f.name]) ? item[f.name] : (item[f.name] = []);
-            return a;
-          };
-          const all = getArr();
-          const idxs = App.util?.showMissingOnly
-            ? all.map((v,k)=> isMissingValue(f,v) ? k : -1).filter(k=>k>=0)
-            : all.map((_,k)=>k);
-
-          if (!idxs.length && App.util?.showMissingOnly) return;
-
-          const list = el('div', { class:'repeatable-items' });
-          const setArr = (a)=>{ item[f.name] = a; };
-          const renderRow = buildRenderRow({
-            field: f, getArr, setArr,
-            idxToRow: ()=> item,
-            uidBase: `${sectionKey}__blk${i}__${f.name}`
-          });
-
-          idxs.forEach(k => list.append(renderRow(k)));
-
-          const children = [list];
-          if (!App.util?.showMissingOnly) {
-            const add = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
-            add.addEventListener('click', async ()=>{
-              const a = getArr().slice();
-              a.push(f.type==='checkbox' ? false : '');
-              setArr(a);
-              await persist(); App.form?.renderForm?.();
-            });
-            children.push(add);
-          }
-
-          inner.append(el('div', { class:'kv' }, {
-            children:[ el('label',{}, {children:[ f.label || f.name ]}), el('div',{}, {children}) ]
-          }));
-          return;
-        }
-
-        // ----- CHAMP simple (dans bloc)
-        const cur = (f.type==='date')
-          ? (App.util?.getRawForData ? App.util.getRawForData(item, f.name) : (item[f.name] ?? ''))
-          : (item[f.name] ?? (f.type==='checkbox'?false:''));
-        if (App.util?.showMissingOnly && !isMissingValue(f, cur)) return;
-
-        const r = el('div', { class:'kv' });
-        const l = el('label', {}, { children:[ f.label || f.name ] });
-        const input = renderInputForField(
-          f, cur,
-          async v=>{
-            if (f.type==='date' && App.util?.setRawForData) App.util.setRawForData(item, f.name, v);
-            else item[f.name] = v;
-            await persist();
-          },
-          `${i}`,
-          { row: item, uid:`${sectionKey}__blk${i}__${f.name}` }
-        );
-        r.append(l, input);
-        attachTip(r, f);
-        inner.append(r);
-      });
-
-      outer.append(el('div', { class:'input-wrap' }, { children:[tag, inner] }));
-      return outer;
-    };
-
-    const container = el('div', { class:'repeatable' });
-    items.forEach((_, i) => {
-      const node = renderBlock(i);
-      if (node) container.append(node);
-    });
-
-    // bouton Ajouter un bloc — afficher seulement si pas de filtre
-    const nodes = [container];
-    if (!App.util?.showMissingOnly) {
-      const addBlock = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter un bloc'] });
-      addBlock.addEventListener('click', async ()=>{
-        items.push({});
-        await persist(); App.form?.renderForm?.();
-      });
-      nodes.push(addBlock);
-    }
-
-    sectionNode.append(...nodes);
-    targetHost.append(sectionNode);
-    return;
-  }
-
-    // ---------- Section NON répétable ----------
-  const kv = el('div', { class:'kv' });
-  const DATA = (App.state.currentAnalyse.data ||= {});
-  const ROW  = (DATA[sectionKey] ||= {}); // <<< NAMESPACE DE SECTION
-
-  (section.fields||[]).forEach(f=>{
-    // ----- GROUPE
-    if (f && f.group && Array.isArray(f.fields)) {
-      const g = f.group;
-
-      if (g.repeatable) {
-        const KEY = `__grp__${g.name}`;
-        if (!Array.isArray(ROW[KEY])) ROW[KEY] = [];
-
-        const lab  = el('label', {}, { children:[ g.label || g.name ] });
-        const list = el('div', { class:'repeatable' });
-
-        const renderOcc = (i) => {
-          const obj = ROW[KEY][i] || (ROW[KEY][i] = {});
-          if (App.util?.showMissingOnly && !groupOccHasMissing(f, obj)) return null;
-
-          const item  = el('div', { class:'repeatable-item' });
-          const iwrap = el('div', { class:'input-wrap' });
-
-          const tag = el('div', { class:'mini-tags' });
-          const dup = el('button', { class:'mini-btn', type:'button' }, { children:['⧉'] });
-          const rm  = el('button', { class:'mini-btn', type:'button' }, { children:['✕'] });
-          tag.append(dup, rm);
-
-          dup.addEventListener('click', async ()=>{ ROW[KEY].push(structuredClone(obj)); await persist(); App.form?.renderForm?.(); });
-          rm.addEventListener('click', async ()=>{ if (!confirm("Voulez-vous vraiment supprimer cet élément ?")) return; ROW[KEY].splice(i,1); await persist(); App.form?.renderForm?.(); });
-
-          (f.fields || []).forEach(sf => {
-            if (sf.repeatable) {
-              if (!Array.isArray(obj[sf.name])) obj[sf.name] = [];
-              const all  = obj[sf.name];
+    
+            // champ répétable — ROW
+            if (f?.repeatable){
+              const getArr = () => {
+                const a = Array.isArray(ROW[f.name]) ? ROW[f.name] : (ROW[f.name] = []);
+                return a;
+              };
+              const all = getArr();
               const idxs = App.util?.showMissingOnly
-                ? all.map((v,k)=> isMissingValue(sf,v) ? k : -1).filter(k=>k>=0)
+                ? all.map((v,k)=> isMissingValue(f,v) ? k : -1).filter(k=>k>=0)
                 : all.map((_,k)=>k);
-
+    
               if (!idxs.length && App.util?.showMissingOnly) return;
-
+    
               const list = el('div', { class:'repeatable-items' });
-              const getArr = () => obj[sf.name];
-              const setArr = (a) => { obj[sf.name] = a; };
-
+              const setArr = (a)=>{ ROW[f.name] = a; };
+    
               const renderRow = buildRenderRow({
-                field: sf, getArr, setArr,
-                idxToRow: () => obj,
-                uidBase: `${sectionKey}__grp_${g.name}__${sf.name}__i${i}` // uid + sectionKey
+                field: f, getArr, setArr,
+                idxToRow: ()=> ROW,
+                uidBase: `${sectionKey}__${f.name}`
               });
-
+    
               idxs.forEach(k => list.append(renderRow(k)));
-
+    
               const children = [list];
               if (!App.util?.showMissingOnly) {
-                const add = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
-                add.addEventListener('click', async ()=>{
+                const addBtn = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
+                addBtn.addEventListener('click', async ()=>{
                   const a = getArr().slice();
-                  a.push(sf.type === 'checkbox' ? false : '');
+                  a.push(f.type==='checkbox' ? false : '');
                   setArr(a);
                   await persist(); App.form?.renderForm?.();
                 });
-                children.push(add);
+                children.push(addBtn);
               }
-
-              const row = el('div', { class:'kv' }, {
-                children: [
-                  el('label', {}, { children:[ sf.label || sf.name ] }),
-                  el('div', {}, { children })
-                ]
-              });
-              iwrap.append(row);
+    
+              kv.append(el('label',{}, {children:[ f.label || f.name ]}), el('div',{}, {children}));
+              sectionNode.append(kv);
+              targetHost.append(sectionNode);
               return;
             }
-
-            const cur = (sf.type === 'date')
-              ? (App.util?.getRawForData ? App.util.getRawForData(obj, sf.name) : (obj[sf.name] ?? ''))
-              : (obj[sf.name] ?? (sf.type === 'checkbox' ? false : ''));
-            if (App.util?.showMissingOnly && !isMissingValue(sf, cur)) return;
-
+    
+            // champ simple — ROW
+            const cur = (f.type==='date')
+              ? (App.util?.getRawForData ? App.util.getRawForData(ROW, f.name) : (ROW[f.name] ?? ''))
+              : (ROW[f.name] ?? (f.type==='checkbox'?false:''));
+            if (App.util?.showMissingOnly && !isMissingValue(f, cur)) return;
+    
             const r = el('div', { class:'kv' });
-            const l = el('label', {}, { children:[ sf.label || sf.name ] });
+            const l = el('label', {}, { children:[ f.label || f.name ] });
             const input = renderInputForField(
-              sf, cur,
-              async v => {
-                if (sf.type === 'date' && App.util?.setRawForData) App.util.setRawForData(obj, sf.name, v);
-                else obj[sf.name] = v;
+              f, cur,
+              async v=>{
+                if (f.type==='date' && App.util?.setRawForData) App.util.setRawForData(ROW, f.name, v);
+                else ROW[f.name] = v;
                 await persist();
               },
               null,
-              { row: obj, uid:`${sectionKey}__grp_${g.name}__${sf.name}__i${i}` }
+              { row: ROW, uid:`${sectionKey}__${f.name}` }
             );
             r.append(l, input);
-            attachTip(r, sf);
-            iwrap.append(r);
+            attachTip(r, f);
+            kv.append(r);
           });
-
-          item.append(el('div', { class:'input-wrap' }, { children:[tag, iwrap] }));
-          return item;
-        };
-
-        ROW[KEY].forEach((_, i) => {
-          const n = renderOcc(i);
-          if (n) list.append(n);
-        });
-
-        if (App.util?.showMissingOnly && !list.childElementCount) {
+    
+          sectionNode.append(kv);
+          targetHost.append(sectionNode);
           return;
         }
-
-        const wrap = el('div');
-        wrap.append(list);
-        if (!App.util?.showMissingOnly) {
-          const addGrp2 = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
-          addGrp2.addEventListener('click', async () => {
-            ROW[KEY].push({});
-            await persist();
-            App.form?.renderForm?.();
-          });
-          wrap.append(addGrp2);
-        }
-
-        kv.append(lab, wrap);
-        sectionNode.append(kv);
-        targetHost.append(sectionNode);
-        return;
-      }
-
-      // groupe simple (aplati) — stocké dans ROW
-      const legend = el('label', { class:'group-legend' }, { children:[ g.label || g.name ] });
-      const gWrap  = el('div', { class:'section group-wrap' });
-      let painted = 0;
-      (f.fields||[]).forEach(sf=>{
-        const cur = (sf.type==='date')
-          ? (App.util?.getRawForData ? App.util.getRawForData(ROW, sf.name) : (ROW[sf.name] ?? ''))
-          : (ROW[sf.name] ?? (sf.type==='checkbox'?false:''));
-        if (App.util?.showMissingOnly && !isMissingValue(sf, cur)) return;
-        const r = el('div', { class:'kv' });
-        const l = el('label', {}, { children:[ sf.label || sf.name ] });
-        const input = renderInputForField(
-          sf, cur,
-          async v=>{
-            if (sf.type==='date' && App.util?.setRawForData) App.util.setRawForData(ROW, sf.name, v);
-            else ROW[sf.name] = v;
-            await persist();
-          },
-          null,
-          { row: ROW, uid:`${sectionKey}__grp_${g.name}__${sf.name}` }
-        );
-        r.append(l, input);
-        attachTip(r, sf);
-        gWrap.append(r);
-        painted++;
-      });
-      if (painted){
-        kv.append(legend, gWrap);
-        sectionNode.append(kv);
-        targetHost.append(sectionNode);
-      }
-      return;
-    }
-
-    // ----- CHAMP répétable — stocké dans ROW
-    if (f?.repeatable){
-      const getArr = () => {
-        const a = Array.isArray(ROW[f.name]) ? ROW[f.name] : (ROW[f.name] = []);
-        return a;
-      };
-      const all = getArr();
-      const idxs = App.util?.showMissingOnly
-        ? all.map((v,k)=> isMissingValue(f,v) ? k : -1).filter(k=>k>=0)
-        : all.map((_,k)=>k);
-
-      if (!idxs.length && App.util?.showMissingOnly) return;
-
-      const list = el('div', { class:'repeatable-items' });
-      const setArr = (a)=>{ ROW[f.name] = a; };
-
-      const renderRow = buildRenderRow({
-        field: f, getArr, setArr,
-        idxToRow: ()=> ROW,
-        uidBase: `${sectionKey}__${f.name}`
-      });
-
-      idxs.forEach(k => list.append(renderRow(k)));
-
-      const children = [list];
-      if (!App.util?.showMissingOnly) {
-        const addBtn = el('button', { class:'btn sm adder', type:'button' }, { children:['Ajouter'] });
-        addBtn.addEventListener('click', async ()=>{
-          const a = getArr().slice();
-          a.push(f.type==='checkbox' ? false : '');
-          setArr(a);
-          await persist(); App.form?.renderForm?.();
-        });
-        children.push(addBtn);
-      }
-
-      kv.append(el('label',{}, {children:[ f.label || f.name ]}), el('div',{}, {children}));
-      sectionNode.append(kv);
-      targetHost.append(sectionNode);
-      return;
-    }
-
-    // ----- CHAMP simple — stocké dans ROW
-    const cur = (f.type==='date')
-      ? (App.util?.getRawForData ? App.util.getRawForData(ROW, f.name) : (ROW[f.name] ?? ''))
-      : (ROW[f.name] ?? (f.type==='checkbox'?false:''));
-    if (App.util?.showMissingOnly && !isMissingValue(f, cur)) return;
-
-    const r = el('div', { class:'kv' });
-    const l = el('label', {}, { children:[ f.label || f.name ] });
-    const input = renderInputForField(
-      f, cur,
-      async v=>{
-        if (f.type==='date' && App.util?.setRawForData) App.util.setRawForData(ROW, f.name, v);
-        else ROW[f.name] = v;
-        await persist();
-      },
-      null,
-      { row: ROW, uid:`${sectionKey}__${f.name}` }
-    );
-    r.append(l, input);
-    attachTip(r, f);
-    kv.append(r);
-  });
-
-  sectionNode.append(kv);
-  targetHost.append(sectionNode);
-  return;
-}
-
-  // ========= Pager local réutilisable (pour chaque process) =========
-  function renderLocalPager(totalPages, current, onGoto){
-    const wrap = el('div', { class:'pager local' });
-    const btn = (txt, goto, disabled=false, aria='') => {
-      const b = el('button', { class:'btn sm ghost', type:'button', disabled: !!disabled });
-      b.textContent = txt; if (aria) b.setAttribute('aria-label', aria);
-      if (!disabled) b.addEventListener('click', ()=> onGoto(goto));
-      return b;
-    };
-    wrap.append(
-      btn('‹', Math.max(0, current-1), current<=0, 'Page précédente')
-    );
-
-    const MAX = 7;
-    const mkDot = (i) => {
-      const d = el('button', { class:'btn sm ' + (i===current?'primary':'ghost'), type:'button' });
-      d.textContent = (i+1);
-      d.addEventListener('click', ()=> onGoto(i));
-      return d;
-    };
-    if (totalPages <= MAX){
-      for(let i=0;i<totalPages;i++) wrap.append(mkDot(i));
-    } else {
-      const mid = current;
-      const add = (i) => wrap.append(mkDot(i));
-      add(0);
-      if (mid > 2) wrap.append(el('span', { class:'dots' }, { children:['…'] }));
-      const start = Math.max(1, mid-1);
-      const end   = Math.min(totalPages-2, mid+1);
-      for(let i=start;i<=end;i++) add(i);
-      if (mid < totalPages-3) wrap.append(el('span', { class:'dots' }, { children:['…'] }));
-      add(totalPages-1);
-    }
-
-    wrap.append(
-      btn('›', Math.min(totalPages-1, current+1), current>=totalPages-1, 'Page suivante')
-    );
-    return wrap;
-  }
-
-  // ========= SECTIONS (mono / multi) =========
-  if (MULTI){
-    // état de page LOCAL par processus (préserve restaurations LS)
-    App.form._multiPage = App.form._multiPage || Object.create(null);
-    const getProcPage = (key) => {
-      const v = App.form._multiPage[key];
-      return Number.isInteger(v) ? v : 0;
-    };
-    App.form.setProcPage = (key, page) => {
-      App.form._multiPage[key] = Math.max(0, page|0);
-      saveLS();
-    };
-
-    // MÉMO OUVERT / FERMÉ
-    App.form._panelOpen = App.form._panelOpen || Object.create(null);
-    const getProcOpen = (key) =>
-      (key in App.form._panelOpen) ? !!App.form._panelOpen[key] : false;
-    const setProcOpen = (key, open) => { App.form._panelOpen[key] = !!open; saveLS(); };
-
-    // grille de colonnes
-    const wrap = el('div', { class:'proc-columns' });
-
-    MULTI.forEach((proc, pi)=>{
-      const procKey = String(proc?.name || pi);
-      const sections = proc?.sections || [];
-      const totalPages = sections.length;
-      let localPage = getProcPage(procKey);
-
-      const panel = el('div', { class:'proc-panel' });
-      const head  = el('div', { class:'proc-head', role:'button', tabindex:'0', 'aria-expanded':'true' });
-      const title = el('div', { class:'proc-title' }, { children:[ proc?.name || `Processus ${pi+1}` ] });
-      const stat  = el('span', { class:'proc-status' }, { children:[''] });
-
-      // bouton toggle Verrouiller / Déverrouiller — toujours visible
-      const lockBtn = el('button', { class:'btn sm', type:'button' }, { children:['Verrouiller'] });
-
-      // bouton pour replier/déplier le panneau
-      const toggle = el('button', { class:'btn sm ghost', type:'button' }, { children:['Replier'] });
-
-      const body  = el('div', { class:'proc-body' });
-
-      function setOpen(open){
-        panel.classList.toggle('open', !!open);
-        head.setAttribute('aria-expanded', open ? 'true' : 'false');
-        toggle.textContent = open ? 'Replier' : 'Déplier';
-        setProcOpen(procKey, !!open);
-      }
-
-      setOpen(getProcOpen(procKey));
-
-      head.addEventListener('click', (e)=>{
-        if (e.target !== toggle && e.target !== lockBtn) setOpen(!panel.classList.contains('open'));
-      });
-      toggle.addEventListener('click', (e)=>{ e.stopPropagation(); setOpen(!panel.classList.contains('open')); });
-
-      head.append(title, stat, lockBtn, toggle);
-      panel.append(head, body);
-
-      // état persistant par process (verrouillé)
-      const dataRoot = (App.state.currentAnalyse.data ||= {});
-      const doneMap  = (dataRoot.__procDone ||= {});
-      const isLocked = () => (doneMap[procKey] === true || doneMap[procKey] === 'true' || doneMap[procKey] === 1);
-
-      const persistLock = async (v) => {
-        doneMap[procKey] = !!v;
-        await persist();
-      };
-
-      // Activer/désactiver l'édition + garde-fou toast
-      function setLockedUI(disabled){
-        panel.classList.toggle('done', !!disabled);
-        panel.classList.toggle('locked', !!disabled);
-
-        body.querySelectorAll('input, select, textarea, fieldset, [contenteditable="true"]').forEach(elm=>{
-          if (elm.closest('.pager')) return;
-          if (elm.hasAttribute('contenteditable')) elm.setAttribute('contenteditable', disabled ? 'false' : 'true');
-          if ('disabled' in elm) elm.disabled = !!disabled;
-        });
-
-        body.querySelectorAll('button, .btn').forEach(btn=>{
-          if (btn.closest('.pager')) return;
-          btn.disabled = !!disabled;
-        });
-
-        if (!panel.__lockGuardInstalled){
-          const blocker = (e)=>{
-            if (!isLocked()) return;
-            if (e.target.closest('.pager')) return;
-            const editable = e.target.closest('input, select, textarea, [contenteditable="true"], .btn-add, .btn-del, .btn-edit, button');
-            if (editable){
-              e.preventDefault(); e.stopPropagation();
-              (App.ui?.toast || App.util?.toast || ((m)=>alert(m)))(
-                "Ce processus est verrouillé. Cliquez sur « Déverrouiller » pour modifier."
-              );
-            }
+    
+        // ========= Pager local (multi-process) =========
+        function renderLocalPager(totalPages, current, onGoto){
+          const wrap = el('div', { class:'pager local' });
+          const btn = (txt, goto, disabled=false, aria='') => {
+            const b = el('button', { class:'btn sm ghost', type:'button', disabled: !!disabled });
+            b.textContent = txt; if (aria) b.setAttribute('aria-label', aria);
+            if (!disabled) b.addEventListener('click', ()=> onGoto(goto));
+            return b;
           };
-          body.addEventListener('click', blocker, true);
-          body.addEventListener('input', blocker, true);
-          panel.__lockGuardInstalled = true;
-        }
-      }
-
-      const setLocked = async (lock) => {
-        await persistLock(!!lock);
-        setLockedUI(!!lock);
-        lockBtn.textContent = isLocked() ? 'Déverrouiller' : 'Verrouiller';
-      };
-
-      lockBtn.addEventListener('click', async (e)=>{
-        e.stopPropagation();
-        const next = !isLocked();
-        await setLocked(next);
-      });
-
-      const rerenderProcess = ()=>{
-        body.innerHTML = '';
-
-        // progression de CE process (vert uniquement si 100%)
-        const per = (computeProgressByProcess(App.state.currentAnalyse) || [])[pi] || { pct:0, filled:0, total:0 };
-        stat.className = 'proc-status' + (per.pct === 100 ? ' ok' : '');
-        stat.textContent = `${per.pct}% (${per.filled}/${per.total})`;
-
-        const renderPagerAndGetNode = (where)=>{
-          App.util.renderPager(where, {
-            local: true,
-            currentPage: () => localPage,
-            totalPages:  () => totalPages,
-            goto:        (pg) => { localPage = pg; App.form.setProcPage(procKey, localPage); rerenderProcess(); },
-            finishLabel: 'Terminer',
-            onFinish: async () => {
-              await setLocked(true);
-              setOpen(false);
-              // boutons "Terminer" restent gérés par verrouillage
-            }
-          });
-          return Array.from(where.querySelectorAll('.pager')).pop() || where;
-        };
-
-        // pager haut
-        renderPagerAndGetNode(body);
-
-        // contenu page
-        let content;
-        if (sections[localPage]) {
-          content = el('div');
-          renderOneSection(content, sections[localPage], localPage);
-          body.append(content);
-        } else {
-          body.append(el('div', { class:'muted' }, { children:['(Aucune section)'] }));
-        }
-
-        // ⬇️ "Tout est complet" si filtre actif et aucune occurrence/champ visible
-        if (App.util?.showMissingOnly) {
-          const hasEditable = !!content?.querySelector('.repeatable-item, input, select, textarea, [contenteditable="true"]');
-          if (!hasEditable) {
-            const doneCard = el('div', { class:'empty-state', style:'padding:14px;border:1px solid #d5e8d4;background:#f6ffed;border-radius:12px;margin:8px 0' }, { children:[
-              el('h4', { style:'margin:0 0 6px 0' }, { children:['Tout est complet ✅'] }),
-              el('p',  { style:'margin:0' }, { children:['Il n’y a rien à remplir pour cette étape.'] })
-            ]});
-            body.append(doneCard);
-          }
-        }
-
-        // pied d'étape
-        const stepFoot = el('div', { class:'proc-step muted' }, { children:[ `Étape ${localPage + 1} / ${totalPages}` ] });
-        body.append(stepFoot);
-      };
-
-      rerenderProcess();
-      wrap.append(panel);
-    });
-
-    host.append(wrap);
-    return; // stop here (multi)
-  }
-
-  // --- Mono-processus : on rend TEMPLATE avec le filtrage par page globale
-  const TEMPLATE = App?.model?.TEMPLATE || [];
-
-  function renderSectionsForTemplate_Mono(targetHost, TEMPLATE_SECTIONS){
-    const pageWrap = el('div', { class:'page-wrap' });
-    TEMPLATE_SECTIONS.forEach((section, sidx)=>{
-      const expectedPage = sidx + 1; // page 1 = première section
-      if (App.util?.currentPage != null && App.util.currentPage !== expectedPage) return;
-      renderOneSection(pageWrap, section, sidx);
-    });
-    targetHost.append(pageWrap);
-
-    // "Tout est complet" si filtre actif et aucun champ/occurrence visible
-    if (App.util?.showMissingOnly) {
-      const hasEditable = !!pageWrap.querySelector('.repeatable-item, input, select, textarea, [contenteditable="true"]');
-      if (!hasEditable) {
-        const doneCard = el('div', { class:'empty-state', style:'padding:14px;border:1px solid #d5e8d4;background:#f6ffed;border-radius:12px;margin:8px 0' }, { children:[
-          el('h4', { style:'margin:0 0 6px 0' }, { children:['Tout est complet ✅'] }),
-          el('p',  { style:'margin:0' }, { children:['Il n’y a rien à remplir pour cette étape.'] })
-        ]});
-        targetHost.append(doneCard);
-      }
-    }
-  }
-
-  renderSectionsForTemplate_Mono(host, TEMPLATE);
-}
-
-function attachTip(parentEl, field){
-  if(!field?.tips) return;
-  const t = document.createElement('div');
-  t.className = 'tip-note';
-  t.innerHTML = `
-    <span class="tip-icn">${field.tips.icon || '💡'}</span>
-    <div class="tip-body">${String(field.tips.text).replace(/\n/g,'<br>')}</div>
-  `;
-  parentEl.appendChild(t);
-}
-function renderInputForField(field, value, onChange, idxForRepeatable=null, ctx=null){
-  const base = ctx?.uid ? `f_${ctx.uid}` : `f_${field.name}`;
-  const fid  = base + (idxForRepeatable !== null && idxForRepeatable !== undefined ? `_${idxForRepeatable}` : '');
-  const attrs = {id: fid, name: field.name, 'aria-label': field.label || field.name, required: !!field.required};
-  if(field.placeholder) attrs.placeholder = field.placeholder;
-
-  switch(field.type){
-    case 'textarea': {
-      const ta = el('textarea', attrs);
-      ta.value = value || '';
-      ta.addEventListener('input', e => onChange(e.target.value));
-      return ta;
-    }
-
-    case 'select': {
-      const input = el('select', attrs);
-      const placeholderText = field.placeholder || '— Sélectionner —';
-      const placeholderAttrs = { value: '' };
-      if (field.required) { placeholderAttrs.disabled = true; placeholderAttrs.hidden = true; }
-      if (!value) placeholderAttrs.selected = true;
-      input.append(el('option', placeholderAttrs, { children: [placeholderText] }));
-      (field.options || []).forEach(opt => {
-        const o = el('option', { value: opt }, { children: [opt] });
-        if (opt === value) o.selected = true;
-        input.append(o);
-      });
-      input.value = value ?? '';
-      input.addEventListener('change', e => onChange(e.target.value));
-      return input;
-    }
-
-    case 'checkbox': {
-      const input = el('input', {...attrs, type:'checkbox'});
-      input.checked = !!value;
-      input.addEventListener('change', e=> onChange(e.target.checked));
-      return input;
-    }
-
-    case 'radio': {
-      const wrap = el('div', {class:'row', role:'radiogroup', 'aria-label': field.label || field.name});
-      (field.options||[]).forEach((opt,i)=>{
-        const rid = fid + '_' + (App.util?.slug?.(opt) || i);
-        const r = el('input', {type:'radio', id:rid, name: fid, value: opt, checked: value===opt, required: !!field.required,
-          onchange: e=> onChange(e.target.value)});
-        const lab = el('label', {for:rid},{children:[opt]});
-        wrap.append(el('div', {class:'row', style:'gap:6px'}, {children:[r, lab]}));
-      });
-      return wrap;
-    }
-
-    case 'number': {
-      const input = el('input', {...attrs, type:'number'});
-      if(field.min!==undefined) input.min = field.min;
-      if(field.max!==undefined) input.max = field.max;
-      if(field.step!==undefined) input.step = field.step;
-      input.value = (value ?? '') === null ? '' : value ?? '';
-      input.addEventListener('input', e=> onChange(e.target.value));
-      return input;
-    }
-
-    case 'date': {
-      const hasIndex = (idxForRepeatable !== null && idxForRepeatable !== undefined);
-      const raw = hasIndex
-        ? (getRawForDataIdx(App.state.currentAnalyse, field.name, idxForRepeatable) || (value || ''))
-        : ((App.state.currentAnalyse.data && App.state.currentAnalyse.data[`${field.name}__raw`]) || (value || ''));
-
-      const input = el('input', {
-        ...attrs,
-        type: 'text',
-        inputmode: 'numeric',
-        placeholder: 'YYYY-MM-DD',
-        value: raw
-      });
-      const hint = el('div', { class:'muted', style:'margin-top:2px' }, { children:[''] });
-
-      async function sync(val){
-        if (!App.state.currentAnalyse.data) App.state.currentAnalyse.data = {};
-        if (hasIndex) setRawForDataIdx(App.state.currentAnalyse, field.name, idxForRepeatable, val);
-        else          App.state.currentAnalyse.data[`${field.name}__raw`] = val;
-
-        const ok = App.util.parseDateStrict(val);
-        if (ok){
-          onChange(ok);
-          hint.textContent = '';
-          input.classList.remove('invalid');
-        } else {
-          onChange('');
-          hint.textContent = val ? 'Format attendu : YYYY-MM-DD' : '';
-          input.classList.add('invalid');
-        }
-        await persist().catch(()=>{});
-        App.util.safeUIRefresh();
-      }
-
-      input.addEventListener('input', e => sync(e.target.value));
-      setTimeout(() => sync(raw), 0);
-
-      const wrap = el('div', {});
-      wrap.append(input, hint);
-      return wrap;
-    }
-
-    case 'file': {
-      function esc(s){
-        return String(s)
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;');
-      }
-
-      const root = (App.state.currentAnalyse.data ||= {});
-      const row  = (ctx && ctx.row) ? ctx.row : root;
-
-      const isRepeatEntry = !!field.repeatable;
-      const LIST_KEY = field.name + '__listed';
-
-      if (!Array.isArray(row[LIST_KEY])) row[LIST_KEY] = [];
-
-      function getHist() {
-        if (!isRepeatEntry) return row[LIST_KEY];
-        const idx = (idxForRepeatable ?? -1);
-        if (idx < 0) return [];
-        if (!Array.isArray(row[LIST_KEY][idx])) row[LIST_KEY][idx] = [];
-        return row[LIST_KEY][idx];
-      }
-
-      const wrap      = el('div', { class: 'file-input' });
-      const inputRow  = el('div', { class: 'file-row' });
-      const fileInput = el('input', { type: 'file', id: fid });
-      const uploadBtn = el('button', { class: 'btn sm', type: 'button' }, { children: ['Uploader'] });
-      uploadBtn.style.display = 'none';
-      fileInput.addEventListener('change', () => {
-        uploadBtn.style.display = fileInput.files?.length > 0 ? '' : 'none';
-      });
-
-      const list      = el('ul', { class: 'file-list' });
-
-      function setStatus(li, char, title){
-        let b = li.querySelector('.file-status');
-        if (!b) {
-          b = document.createElement('span');
-          b.className = 'file-status';
-          li.prepend(b);
-          li.insertBefore(document.createTextNode(' '), b.nextSibling);
-        }
-        b.textContent = char;
-        b.title = title || '';
-      }
-
-function ensureStatusMap(){
-  const a = App.state?.currentAnalyse;
-  if (!a) return {};              // ou retourne un map vide / lève une erreur contrôlée
-  a.data ||= {};
-  a.data.__fileStatus ||= {};
-  return a.data.__fileStatus;
-}
-
-      function getFileStatus(name){
-        const m = ensureStatusMap();
-        return m[name] || 'unknown';
-      }
-      function setFileStatus(name, state){
-        const m = ensureStatusMap();
-        m[name] = state;
-        try { persist(); } catch {}
-      }
-
-      function drawList() {
-        list.innerHTML = '';
-        const items = getHist();
-        const current = items[items.length - 1] || '';
-// Synchronise la valeur "courante" côté data pour que la progression compte le fichier
-if (!isRepeatEntry) {
-  if ((row[field.name] ?? '') !== current) row[field.name] = current || '';
-} else if (Number.isInteger(idxForRepeatable)) {
-  if (!Array.isArray(row[field.name])) row[field.name] = [];
-  if ((row[field.name][idxForRepeatable] ?? '') !== current) {
-    row[field.name][idxForRepeatable] = current || '';
-  }
-}
-
-        items.forEach((name, idx) => {
-          const safe = esc(name);
-          const li = document.createElement('li');
-          li.dataset.name = name;
-          li.className = 'file-row';
-
-          const labelHTML = (idx < items.length - 1) ? `<del>${safe}</del>` : `${safe}`;
-
-          const actions = document.createElement('span');
-          actions.className = 'file-actions';
-
-          if (name !== current) {
-            const chooseBtn = document.createElement('button');
-            chooseBtn.type = 'button';
-            chooseBtn.className = 'mini-btn';
-            chooseBtn.setAttribute('data-act','choose');
-            chooseBtn.textContent = '🎯';
-            actions.appendChild(chooseBtn);
-          }
-
-          const delBtn = document.createElement('button');
-          delBtn.type = 'button';
-          delBtn.className = 'mini-btn';
-          delBtn.setAttribute('data-act','delete');
-          delBtn.textContent = '🗑️';
-          actions.appendChild(delBtn);
-
-          li.innerHTML = labelHTML + ' ';
-          li.appendChild(actions);
-
-          if (name !== current) {
-            setStatus(li, '🗄️', 'Ancienne version');
+          wrap.append(
+            btn('‹', Math.max(0, current-1), current<=0, 'Page précédente')
+          );
+    
+          const MAX = 7;
+          const mkDot = (i) => {
+            const d = el('button', { class:'btn sm ' + (i===current?'primary':'ghost'), type:'button' });
+            d.textContent = (i+1);
+            d.addEventListener('click', ()=> onGoto(i));
+            return d;
+          };
+          if (totalPages <= MAX){
+            for(let i=0;i<totalPages;i++) wrap.append(mkDot(i));
           } else {
-            const st = getFileStatus(name);
-            if (st === 'ok')         setStatus(li, '✅', 'Disponible');
-            else if (st==='missing') setStatus(li, '⚠️', 'Introuvable');
-            else                     setStatus(li, '❓', 'État inconnu (scan en cours)');
+            const mid = current;
+            const add = (i) => wrap.append(mkDot(i));
+            add(0);
+            if (mid > 2) wrap.append(el('span', { class:'dots' }, { children:['…'] }));
+            const start = Math.max(1, mid-1);
+            const end   = Math.min(totalPages-2, mid+1);
+            for(let i=start;i<=end;i++) add(i);
+            if (mid < totalPages-3) wrap.append(el('span', { class:'dots' }, { children:['…'] }));
+            add(totalPages-1);
           }
-
-          list.append(li);
-        });
-
-        Promise.resolve().then(() => {
-          if (App.util.getCA()) App.files?.scanCurrentAnalyse?.();
-        });
-
-      }
-
-      if (!list.dataset.bound) {
-        list.dataset.bound = '1';
-        list.addEventListener('click', (e) => {
-          const btn = e.target.closest('button[data-act]');
-          if (!btn) return;
-          const act  = btn.getAttribute('data-act');
-          const li   = btn.closest('li.file-row');
-          const name = li?.dataset?.name || '';
-          if (!name) return;
-
-          const hist = getHist();
-          const current = hist[hist.length - 1] || '';
-
-          if (act === 'choose') {
-            const idx = hist.indexOf(name);
-            if (idx >= 0 && idx !== hist.length - 1) {
-              hist.splice(idx, 1);
-              hist.push(name);
+    
+          wrap.append(
+            btn('›', Math.min(totalPages-1, current+1), current>=totalPages-1, 'Page suivante')
+          );
+          return wrap;
+        }
+    
+        // ========= SECTIONS (multi ou mono) =========
+        if (MULTI){
+          App.form._multiPage = App.form._multiPage || Object.create(null);
+          const getProcPage = (key) => {
+            const v = App.form._multiPage[key];
+            return Number.isInteger(v) ? v : 0;
+          };
+          App.form.setProcPage = (key, page) => {
+            App.form._multiPage[key] = Math.max(0, page|0);
+            saveLS();
+          };
+    
+          App.form._panelOpen = App.form._panelOpen || Object.create(null);
+          const getProcOpen = (key) =>
+            (key in App.form._panelOpen) ? !!App.form._panelOpen[key] : false;
+          const setProcOpen = (key, open) => { App.form._panelOpen[key] = !!open; saveLS(); };
+    
+          const wrap = el('div', { class:'proc-columns' });
+    
+          MULTI.forEach((proc, pi)=>{
+            const procKey = String(proc?.name || pi);
+            const sections = proc?.sections || [];
+            const totalPages = sections.length;
+            let localPage = getProcPage(procKey);
+    
+            const panel = el('div', { class:'proc-panel' });
+            const head  = el('div', { class:'proc-head', role:'button', tabindex:'0', 'aria-expanded':'true' });
+            const title = el('div', { class:'proc-title' }, { children:[ proc?.name || `Processus ${pi+1}` ] });
+            const stat  = el('span', { class:'proc-status' }, { children:[''] });
+    
+            const lockBtn = el('button', { class:'btn sm', type:'button' }, { children:['Verrouiller'] });
+            const toggle  = el('button', { class:'btn sm ghost', type:'button' }, { children:['Replier'] });
+            const body    = el('div', { class:'proc-body' });
+    
+            function setOpen(open){
+              panel.classList.toggle('open', !!open);
+              head.setAttribute('aria-expanded', open ? 'true' : 'false');
+              toggle.textContent = open ? 'Replier' : 'Déplier';
+              setProcOpen(procKey, !!open);
             }
-            if (isRepeatEntry) onChange?.(name);
-            else { row[field.name] = name; onChange?.(name); }
-            setFileStatus(name, 'ok');
-            persist().then(() => { 
-              drawList(); 
-              // ➕ MAJ progression
-              App.form?.refreshProgressUI?.(); 
+            setOpen(getProcOpen(procKey));
+    
+            head.addEventListener('click', (e)=>{
+              if (e.target !== toggle && e.target !== lockBtn) setOpen(!panel.classList.contains('open'));
             });
-          }
-
-          if (act === 'delete') {
-            if (!confirm(`Retirer « ${name} » de ce bloc ?`)) return;
-            const idx = hist.indexOf(name);
-            if (idx >= 0) hist.splice(idx, 1);
-
-            if (name === current) {
-              const next = hist[hist.length - 1] || '';
-              if (isRepeatEntry) onChange?.(next);
-              else { row[field.name] = next; onChange?.(next); }
+            toggle.addEventListener('click', (e)=>{ e.stopPropagation(); setOpen(!panel.classList.contains('open')); });
+    
+            head.append(title, stat, lockBtn, toggle);
+            panel.append(head, body);
+    
+            const dataRoot = (App.state.currentAnalyse.data ||= {});
+            const doneMap  = (dataRoot.__procDone ||= {});
+            const isLocked = () => (doneMap[procKey] === true || doneMap[procKey] === 'true' || doneMap[procKey] === 1);
+    
+            const persistLock = async (v) => {
+              doneMap[procKey] = !!v;
+              await persist();
+            };
+    
+            function setLockedUI(disabled){
+              panel.classList.toggle('done', !!disabled);
+              panel.classList.toggle('locked', !!disabled);
+    
+              body.querySelectorAll('input, select, textarea, fieldset, [contenteditable="true"]').forEach(elm=>{
+                if (elm.closest('.pager')) return;
+                if (elm.hasAttribute('contenteditable')) elm.setAttribute('contenteditable', disabled ? 'false' : 'true');
+                if ('disabled' in elm) elm.disabled = !!disabled;
+              });
+    
+              body.querySelectorAll('button, .btn').forEach(btn=>{
+                if (btn.closest('.pager')) return;
+                btn.disabled = !!disabled;
+              });
+    
+              if (!panel.__lockGuardInstalled){
+                const blocker = (e)=>{
+                  if (!isLocked()) return;
+                  if (e.target.closest('.pager')) return;
+                  const editable = e.target.closest('input, select, textarea, [contenteditable="true"], .btn-add, .btn-del, .btn-edit, button');
+                  if (editable){
+                    e.preventDefault(); e.stopPropagation();
+                    (App.ui?.toast || App.util?.toast || ((m)=>alert(m)))(
+                      "Ce processus est verrouillé. Cliquez sur « Déverrouiller » pour modifier."
+                    );
+                  }
+                };
+                body.addEventListener('click', blocker, true);
+                body.addEventListener('input', blocker, true);
+                panel.__lockGuardInstalled = true;
+              }
             }
-            setFileStatus(name, 'unknown');
-            try { App.storage?.del?.('fsHandles', App.files?._key?.(App.state.currentAnalyse.id, name)); } catch {}
-
-            persist().then(() => { 
-              drawList(); 
-              // ➕ MAJ progression
-              App.form?.refreshProgressUI?.(); 
+    
+            const setLocked = async (lock) => {
+              await persistLock(!!lock);
+              setLockedUI(!!lock);
+              lockBtn.textContent = isLocked() ? 'Déverrouiller' : 'Verrouiller';
+            };
+    
+            lockBtn.addEventListener('click', async (e)=>{
+              e.stopPropagation();
+              const next = !isLocked();
+              await setLocked(next);
             });
-          }
-        });
-      }
-
-      drawList();
-
-      async function commitFile(savedName, dirHandle){
-        const CA = App.util.getCA();
-        if (!CA) {
-          // Analyse fermée pendant l'upload: on nettoie l’UI et on sort proprement
-          fileInput.value = '';
-          uploadBtn.style.display = 'none';
+    
+            const rerenderProcess = ()=>{
+              body.innerHTML = '';
+    
+              const per = (computeProgressByProcess(App.state.currentAnalyse) || [])[pi] || { pct:0, filled:0, total:0 };
+              stat.className = 'proc-status' + (per.pct === 100 ? ' ok' : '');
+              stat.textContent = `${per.pct}% (${per.filled}/${per.total})`;
+    
+              const renderPagerAndGetNode = (where)=>{
+                App.util.renderPager(where, {
+                  local: true,
+                  currentPage: () => localPage,
+                  totalPages:  () => totalPages,
+                  goto:        (pg) => { localPage = pg; App.form.setProcPage(procKey, localPage); rerenderProcess(); },
+                  finishLabel: 'Terminer',
+                  onFinish: async () => {
+                    await setLocked(true);
+                    setOpen(false);
+                  }
+                });
+                return Array.from(where.querySelectorAll('.pager')).pop() || where;
+              };
+    
+              // pager haut
+              renderPagerAndGetNode(body);
+    
+              // contenu
+              let content;
+              if (sections[localPage]) {
+                content = el('div');
+                renderOneSection(content, sections[localPage], localPage);
+                body.append(content);
+              } else {
+                body.append(el('div', { class:'muted' }, { children:['(Aucune section)'] }));
+              }
+    
+              if (App.util?.showMissingOnly) {
+                const hasEditable = !!content?.querySelector('.repeatable-item, input, select, textarea, [contenteditable="true"]');
+                if (!hasEditable) {
+                  const doneCard = el('div', { class:'empty-state', style:'padding:14px;border:1px solid #d5e8d4;background:#f6ffed;border-radius:12px;margin:8px 0' }, { children:[
+                    el('h4', { style:'margin:0 0 6px 0' }, { children:['Tout est complet ✅'] }),
+                    el('p',  { style:'margin:0' }, { children:['Il n’y a rien à remplir pour cette étape.'] })
+                  ]});
+                  body.append(doneCard);
+                }
+              }
+    
+              const stepFoot = el('div', { class:'proc-step muted' }, { children:[ `Étape ${localPage + 1} / ${totalPages}` ] });
+              body.append(stepFoot);
+            };
+    
+            rerenderProcess();
+            wrap.append(panel);
+          });
+    
+          host.append(wrap);
           return;
         }
-
-        // 1) valeur courante
-        if (isRepeatEntry) {
-          onChange?.(savedName);       // arr[i] = savedName
-        } else {
-          row[field.name] = savedName; // champ simple
-          onChange?.(savedName);
-        }
-
-        // 2) historique (idempotent)
-        const hist = getHist();
-        if (hist[hist.length - 1] !== savedName) hist.push(savedName);
-
-        persist().catch(()=>{});
-        // ➕ MAJ progression
-        App.form?.refreshProgressUI?.();
-
-        drawList();
-        setFileStatus(savedName, 'ok');
-
-        // 3) indicateurs/handles (best-effort)
-        const li = list.lastElementChild;
-        if (li) {
-          try {
-            if (dirHandle) {
-              await App.files.updateIndicator(li, { url: savedName }, { project: CA, dirHandle });
-            } else {
-              App.files.setStatus(li, '✅', 'Disponible (session, non persisté)');
+    
+        // --- Mono-processus : TEMPLATE + pager global
+        const TEMPLATE = App?.model?.TEMPLATE || [];
+    
+        function renderSectionsForTemplate_Mono(targetHost, TEMPLATE_SECTIONS){
+          const pageWrap = el('div', { class:'page-wrap' });
+          TEMPLATE_SECTIONS.forEach((section, sidx)=>{
+            const expectedPage = sidx + 1; // page 1 = première section
+            if (App.util?.currentPage != null && App.util.currentPage !== expectedPage) return;
+            renderOneSection(pageWrap, section, sidx);
+          });
+          targetHost.append(pageWrap);
+    
+          if (App.util?.showMissingOnly) {
+            const hasEditable = !!pageWrap.querySelector('.repeatable-item, input, select, textarea, [contenteditable="true"]');
+            if (!hasEditable) {
+              const doneCard = el('div', { class:'empty-state', style:'padding:14px;border:1px solid #d5e8d4;background:#f6ffed;border-radius:12px;margin:8px 0' }, { children:[
+                el('h4', { style:'margin:0 0 6px 0' }, { children:['Tout est complet ✅'] }),
+                el('p',  { style:'margin:0' }, { children:['Il n’y a rien à remplir pour cette étape.'] })
+              ]});
+              targetHost.append(doneCard);
             }
-          } catch {}
-        }
-        if (dirHandle) {
-          try { await App.files.rememberHandle(CA, savedName, dirHandle); } catch {}
-        }
-
-        // 4) reset input
-        fileInput.value = '';
-        uploadBtn.style.display = 'none';
-      }
-
-      if (!uploadBtn.dataset.bound) {
-        uploadBtn.dataset.bound = '1';
-        uploadBtn.addEventListener('click', async () => {
-          const f = fileInput.files?.[0];
-          if (!f) { alert('Choisissez un fichier.'); return; }
-          const CA = App.util.getCA();
-          if (!CA) { alert('Aucun projet ouvert.'); return; }
-
-          uploadBtn.disabled = true;
-          let savedName = f.name, dirHandle = null;
-          try {
-            const saved = await App.uiList.saveToRefDir(CA, f);
-            savedName = (typeof saved === 'string') ? saved : (saved?.fileName ?? savedName);
-            dirHandle = (typeof saved === 'object' && saved?.dirHandle) ? saved.dirHandle : null;
-          } catch {
-            App.uiList?.showToast?.("Fichier ajouté (non persisté dans le dossier de référence).", 2500, 'info');
           }
-          await commitFile(savedName, dirHandle);
-          uploadBtn.disabled = false;
-        });
+        }
+    
+        renderSectionsForTemplate_Mono(host, TEMPLATE);
       }
-
-      inputRow.append(fileInput, uploadBtn);
-      wrap.append(inputRow, list);
-      return wrap;
-    }
-
-    default: {
-      const inp = el('input', {...attrs, type:'text'});
-      inp.value = value || '';
-      inp.addEventListener('input', e => onChange(e.target.value));
-      return inp;
-    }
-  }
-}
-
-
-  // -------- API exposée
-  App.form = {
-    renderForm,
-    renderInputForField,
-    computeProgress,
-    buildFilterSnapshot,
-    updateCompletionBannerUI,
-    headerMissing,
-    pruneItemFieldIfEmpty,
-    computeProgressByProcess,
-    refreshProgressUI
-  };
-
-  App.form._multiPage = App.form._multiPage || Object.create(null);
-  App.form.getProcPage = (key) => {
-    const v = App.form._multiPage[key];
-    return Number.isInteger(v) ? v : 0;
-  };
-  App.form.setProcPage = (key, page) => {
-    App.form._multiPage[key] = Math.max(0, page|0);
-  };
-
-  App._ready = App._ready || {};
-  App._ready.form = true;
-  
-  window.addEventListener('beforeunload', saveLS);
-})();
-</script>
-
+    
+      function attachTip(parentEl, field){
+        if(!field?.tips) return;
+        const t = document.createElement('div');
+        t.className = 'tip-note';
+        t.innerHTML = `
+          <span class="tip-icn">${field.tips.icon || '💡'}</span>
+          <div class="tip-body">${String(field.tips.text).replace(/\n/g,'<br>')}</div>
+        `;
+        parentEl.appendChild(t);
+      }
+    
+      function renderInputForField(field, value, onChange, idxForRepeatable=null, ctx=null){
+        const base = ctx?.uid ? `f_${ctx.uid}` : `f_${field.name}`;
+        const fid  = base + (idxForRepeatable !== null && idxForRepeatable !== undefined ? `_${idxForRepeatable}` : '');
+        const attrs = {id: fid, name: field.name, 'aria-label': field.label || field.name, required: !!field.required};
+        if(field.placeholder) attrs.placeholder = field.placeholder;
+    
+        switch(field.type){
+          case 'textarea': {
+            const ta = el('textarea', attrs);
+            ta.value = value || '';
+            ta.addEventListener('input', e => onChange(e.target.value));
+            return ta;
+          }
+    
+          case 'select': {
+            const input = el('select', attrs);
+            const placeholderText = field.placeholder || '— Sélectionner —';
+            const placeholderAttrs = { value: '' };
+            if (field.required) { placeholderAttrs.disabled = true; placeholderAttrs.hidden = true; }
+            if (!value) placeholderAttrs.selected = true;
+            input.append(el('option', placeholderAttrs, { children: [placeholderText] }));
+            (field.options || []).forEach(opt => {
+              const o = el('option', { value: opt }, { children: [opt] });
+              if (opt === value) o.selected = true;
+              input.append(o);
+            });
+            input.value = value ?? '';
+            input.addEventListener('change', e => onChange(e.target.value));
+            return input;
+          }
+    
+          case 'checkbox': {
+            const input = el('input', {...attrs, type:'checkbox'});
+            input.checked = !!value;
+            input.addEventListener('change', e=> onChange(e.target.checked));
+            return input;
+          }
+    
+          case 'radio': {
+            const wrap = el('div', {class:'row', role:'radiogroup', 'aria-label': field.label || field.name});
+            (field.options||[]).forEach((opt,i)=>{
+              const rid = fid + '_' + (App.util?.slug?.(opt) || i);
+              const r = el('input', {type:'radio', id:rid, name: fid, value: opt, checked: value===opt, required: !!field.required,
+                onchange: e=> onChange(e.target.value)});
+              const lab = el('label', {for:rid},{children:[opt]});
+              wrap.append(el('div', {class:'row', style:'gap:6px'}, {children:[r, lab]}));
+            });
+            return wrap;
+          }
+    
+          case 'number': {
+            const input = el('input', {...attrs, type:'number'});
+            if(field.min!==undefined) input.min = field.min;
+            if(field.max!==undefined) input.max = field.max;
+            if(field.step!==undefined) input.step = field.step;
+            input.value = (value ?? '') === null ? '' : value ?? '';
+            input.addEventListener('input', e=> onChange(e.target.value));
+            return input;
+          }
+    
+          case 'date': {
+            const hasIndex = (idxForRepeatable !== null && idxForRepeatable !== undefined);
+            const container = (ctx && ctx.row) ? ctx.row : (App.state.currentAnalyse.data ||= {});
+            const rawKey = `${field.name}__raw`;
+    
+            const raw = hasIndex
+              ? (getRawForDataIdx(App.state.currentAnalyse, field.name, idxForRepeatable) || (value || ''))
+              : ((container && container[rawKey]) || (value || ''));
+    
+            const input = el('input', {
+              ...attrs,
+              type: 'text',
+              inputmode: 'numeric',
+              placeholder: 'YYYY-MM-DD',
+              value: raw
+            });
+            const hint = el('div', { class:'muted', style:'margin-top:2px' }, { children:[''] });
+    
+            async function sync(val){
+              if (!App.state.currentAnalyse.data) App.state.currentAnalyse.data = {};
+              if (hasIndex) {
+                setRawForDataIdx(App.state.currentAnalyse, field.name, idxForRepeatable, val);
+              } else {
+                container[rawKey] = val;
+              }
+    
+              const ok = App.util.parseDateStrict(val);
+              if (ok){
+                onChange(ok);
+                hint.textContent = '';
+                input.classList.remove('invalid');
+              } else {
+                onChange('');
+                hint.textContent = val ? 'Format attendu : YYYY-MM-DD' : '';
+                input.classList.add('invalid');
+              }
+              await persist().catch(()=>{});
+              App.util?.safeUIRefresh?.();
+            }
+    
+            input.addEventListener('input', e => sync(e.target.value));
+            setTimeout(() => sync(raw), 0);
+    
+            const wrap = el('div', {});
+            wrap.append(input, hint);
+            return wrap;
+          }
+    
+          case 'file': {
+            function esc(s){
+              return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+            }
+    
+            const root = (App.state.currentAnalyse.data ||= {});
+            const row  = (ctx && ctx.row) ? ctx.row : root;
+    
+            const isRepeatEntry = !!field.repeatable;
+            const LIST_KEY = field.name + '__listed';
+    
+            if (!Array.isArray(row[LIST_KEY])) row[LIST_KEY] = [];
+    
+            function getHist() {
+              if (!isRepeatEntry) return row[LIST_KEY];
+              const idx = (idxForRepeatable ?? -1);
+              if (idx < 0) return [];
+              if (!Array.isArray(row[LIST_KEY][idx])) row[LIST_KEY][idx] = [];
+              return row[LIST_KEY][idx];
+            }
+    
+            const wrap      = el('div', { class: 'file-input' });
+            const inputRow  = el('div', { class: 'file-row' });
+            const fileInput = el('input', { type: 'file', id: fid });
+            const uploadBtn = el('button', { class: 'btn sm', type: 'button' }, { children: ['Uploader'] });
+            uploadBtn.style.display = 'none';
+            fileInput.addEventListener('change', () => {
+              uploadBtn.style.display = fileInput.files?.length > 0 ? '' : 'none';
+            });
+    
+            const list      = el('ul', { class: 'file-list' });
+    
+            function setStatus(li, char, title){
+              let b = li.querySelector('.file-status');
+              if (!b) {
+                b = document.createElement('span');
+                b.className = 'file-status';
+                li.prepend(b);
+                li.insertBefore(document.createTextNode(' '), b.nextSibling);
+              }
+              b.textContent = char;
+              b.title = title || '';
+            }
+    
+            function ensureStatusMap(){
+              const a = App.state?.currentAnalyse;
+              if (!a) return {};
+              a.data ||= {};
+              a.data.__fileStatus ||= {};
+              return a.data.__fileStatus;
+            }
+    
+            function getFileStatus(name){
+              const m = ensureStatusMap();
+              return m[name] || 'unknown';
+            }
+            function setFileStatus(name, state){
+              const m = ensureStatusMap();
+              m[name] = state;
+              try { persist(); } catch {}
+            }
+    
+            function drawList() {
+              list.innerHTML = '';
+              const items = getHist();
+              const current = items[items.length - 1] || '';
+              if (!isRepeatEntry) {
+                if ((row[field.name] ?? '') !== current) row[field.name] = current || '';
+              } else if (Number.isInteger(idxForRepeatable)) {
+                if (!Array.isArray(row[field.name])) row[field.name] = [];
+                if ((row[field.name][idxForRepeatable] ?? '') !== current) {
+                  row[field.name][idxForRepeatable] = current || '';
+                }
+              }
+    
+              items.forEach((name, idx) => {
+                const safe = esc(name);
+                const li = document.createElement('li');
+                li.dataset.name = name;
+                li.className = 'file-row';
+    
+                const labelHTML = (idx < items.length - 1) ? `<del>${safe}</del>` : `${safe}`;
+    
+                const actions = document.createElement('span');
+                actions.className = 'file-actions';
+    
+                if (name !== current) {
+                  const chooseBtn = document.createElement('button');
+                  chooseBtn.type = 'button';
+                  chooseBtn.className = 'mini-btn';
+                  chooseBtn.setAttribute('data-act','choose');
+                  chooseBtn.textContent = '🎯';
+                  actions.appendChild(chooseBtn);
+                }
+    
+                const delBtn = document.createElement('button');
+                delBtn.type = 'button';
+                delBtn.className = 'mini-btn';
+                delBtn.setAttribute('data-act','delete');
+                delBtn.textContent = '🗑️';
+                actions.appendChild(delBtn);
+    
+                li.innerHTML = labelHTML + ' ';
+                li.appendChild(actions);
+    
+                if (name !== current) {
+                  setStatus(li, '🗄️', 'Ancienne version');
+                } else {
+                  const st = getFileStatus(name);
+                  if (st === 'ok')         setStatus(li, '✅', 'Disponible');
+                  else if (st==='missing') setStatus(li, '⚠️', 'Introuvable');
+                  else                     setStatus(li, '❓', 'État inconnu (scan en cours)');
+                }
+    
+                list.append(li);
+              });
+    
+              Promise.resolve().then(() => {
+                if (App.util.getCA()) App.files?.scanCurrentAnalyse?.();
+              });
+            }
+    
+            if (!list.dataset.bound) {
+              list.dataset.bound = '1';
+              list.addEventListener('click', (e) => {
+                const btn = e.target.closest('button[data-act]');
+                if (!btn) return;
+                const act  = btn.getAttribute('data-act');
+                const li   = btn.closest('li.file-row');
+                const name = li?.dataset?.name || '';
+                if (!name) return;
+    
+                const hist = getHist();
+                const current = hist[hist.length - 1] || '';
+    
+                if (act === 'choose') {
+                  const idx = hist.indexOf(name);
+                  if (idx >= 0 && idx !== hist.length - 1) {
+                    hist.splice(idx, 1);
+                    hist.push(name);
+                  }
+                  if (isRepeatEntry) onChange?.(name);
+                  else { row[field.name] = name; onChange?.(name); }
+                  setFileStatus(name, 'ok');
+                  persist().then(() => { 
+                    drawList(); 
+                    App.form?.refreshProgressUI?.(); 
+                  });
+                }
+    
+                if (act === 'delete') {
+                  if (!confirm(`Retirer « ${name} » de ce bloc ?`)) return;
+                  const idx = hist.indexOf(name);
+                  if (idx >= 0) hist.splice(idx, 1);
+    
+                  if (name === current) {
+                    const next = hist[hist.length - 1] || '';
+                    if (isRepeatEntry) onChange?.(next);
+                    else { row[field.name] = next; onChange?.(next); }
+                  }
+                  setFileStatus(name, 'unknown');
+                  try { App.storage?.del?.('fsHandles', App.files?._key?.(App.state.currentAnalyse.id, name)); } catch {}
+    
+                  persist().then(() => { 
+                    drawList(); 
+                    App.form?.refreshProgressUI?.(); 
+                  });
+                }
+              });
+            }
+    
+            drawList();
+    
+            async function commitFile(savedName, dirHandle){
+              const CA = App.util.getCA();
+              if (!CA) {
+                fileInput.value = '';
+                uploadBtn.style.display = 'none';
+                return;
+              }
+    
+              if (isRepeatEntry) {
+                onChange?.(savedName);
+              } else {
+                row[field.name] = savedName;
+                onChange?.(savedName);
+              }
+    
+              const hist = getHist();
+              if (hist[hist.length - 1] !== savedName) hist.push(savedName);
+    
+              persist().catch(()=>{});
+              App.form?.refreshProgressUI?.();
+    
+              drawList();
+              setFileStatus(savedName, 'ok');
+    
+              const li = list.lastElementChild;
+              if (li) {
+                try {
+                  if (dirHandle) {
+                    await App.files.updateIndicator(li, { url: savedName }, { project: CA, dirHandle });
+                  } else {
+                    App.files.setStatus(li, '✅', 'Disponible (session, non persisté)');
+                  }
+                } catch {}
+              }
+              if (dirHandle) {
+                try { await App.files.rememberHandle(CA, savedName, dirHandle); } catch {}
+              }
+    
+              fileInput.value = '';
+              uploadBtn.style.display = 'none';
+            }
+    
+            if (!uploadBtn.dataset.bound) {
+              uploadBtn.dataset.bound = '1';
+              uploadBtn.addEventListener('click', async () => {
+                const f = fileInput.files?.[0];
+                if (!f) { alert('Choisissez un fichier.'); return; }
+                const CA = App.util.getCA();
+                if (!CA) { alert('Aucun projet ouvert.'); return; }
+    
+                uploadBtn.disabled = true;
+                let savedName = f.name, dirHandle = null;
+                try {
+                  const saved = await App.uiList.saveToRefDir(CA, f);
+                  savedName = (typeof saved === 'string') ? saved : (saved?.fileName ?? savedName);
+                  dirHandle = (typeof saved === 'object' && saved?.dirHandle) ? saved.dirHandle : null;
+                } catch {
+                  App.uiList?.showToast?.("Fichier ajouté (non persisté dans le dossier de référence).", 2500, 'info');
+                }
+                await commitFile(savedName, dirHandle);
+                uploadBtn.disabled = false;
+              });
+            }
+    
+            inputRow.append(fileInput, uploadBtn);
+            //const wrap = el('div', {});
+            wrap.append(inputRow, list);
+            return wrap;
+          }
+    
+          default: {
+            const inp = el('input', {...attrs, type:'text'});
+            inp.value = value || '';
+            inp.addEventListener('input', e => onChange(e.target.value));
+            return inp;
+          }
+        }
+      }
+    
+      // -------- API exposée
+      App.form = {
+        renderForm,
+        renderInputForField,
+        computeProgress,
+        buildFilterSnapshot,
+        updateCompletionBannerUI,
+        headerMissing,
+        pruneItemFieldIfEmpty,
+        computeProgressByProcess,
+        refreshProgressUI
+      };
+    
+      App.form._multiPage = App.form._multiPage || Object.create(null);
+      App.form.getProcPage = (key) => {
+        const v = App.form._multiPage[key];
+        return Number.isInteger(v) ? v : 0;
+      };
+      App.form.setProcPage = (key, page) => {
+        App.form._multiPage[key] = Math.max(0, page|0);
+      };
+    
+      App._ready = App._ready || {};
+      App._ready.form = true;
+    
+      window.addEventListener('beforeunload', saveLS);
+    })();
+    </script>
+    
 
 <script>
 // =============================================================================
@@ -6497,18 +6558,18 @@ console.log('[App.files] Module chargé');
 
   // ---------- DATES ----------
   function getDateDisplayFromRawContainer(container, fieldName){
-    const key = fieldName + '__raw';
-    const hasDataRaw = !!(container && container.data && has(container.data, key));
-    const raw = hasDataRaw
-      ? container.data[key]
-      : (container && has(container, key) ? container[key] : '');
-    if (raw) return raw;
-    const official = hasDataRaw
-      ? (container?.data ? container.data[fieldName] : '')
-      : (container ? container[fieldName] : '');
-    const ok = App?.util?.parseDateStrict ? App.util.parseDateStrict(official) : /^\d{4}-\d{2}-\d{2}$/.test(String(official||'').trim());
-    return ok ? official : '';
-  }
+  const key = fieldName + '__raw';
+  const hasDataRaw = !!(container && container.data && has(container.data, key));
+  const raw = hasDataRaw
+    ? container.data[key]
+    : (container && has(container, key) ? container[key] : '');
+  if (raw) return raw;
+  const official = hasDataRaw
+    ? (container?.data ? container.data[fieldName] : '')
+    : (container ? container[fieldName] : '');
+  const ok = App?.util?.parseDateStrict ? App.util.parseDateStrict(official) : /^\d{4}-\d{2}-\d{2}$/.test(String(official||'').trim());
+  return ok ? official : '';
+}
 
   // ---------- RENDU CELLULE (HTML) ----------
   function renderKVCellValue(field, value){
@@ -6543,6 +6604,7 @@ console.log('[App.files] Module chargé');
   }
 
   // ---------- BUILD PREVIEW HTML ----------
+// ---------- BUILD PREVIEW HTML ----------
 function buildPreviewHTML(project){
   const H = (lvl, txt)=> `<h${lvl}>${htmlEscape(txt)}</h${lvl}>`;
   const P = txt => `<p>${htmlEscape(txt)}</p>`;
@@ -6554,26 +6616,25 @@ function buildPreviewHTML(project){
     return ok ? project.date : '';
   })();
 
-const renderCell = (field, value) => {
-  if (field?.type === 'textarea') {
-    if ((value ?? '') === '') return '<span>—</span>';
-    const linked = linkifyHTML(String(value))
-      .replace(/\t/g,'    ').replace(/ {2,}/g,m=>'&nbsp;'.repeat(m.length))
-      .replace(/\r?\n/g,'<br>');
-    return `<div class="mono">${linked}</div>`;
-  }
-  if (field?.type === 'checkbox') return `<span>${value ? 'Oui' : 'Non'}</span>`;
+  const renderCell = (field, value) => {
+    if (field?.type === 'textarea') {
+      if ((value ?? '') === '') return '<span>—</span>';
+      const linked = linkifyHTML(String(value))
+        .replace(/\t/g,'    ').replace(/ {2,}/g,m=>'&nbsp;'.repeat(m.length))
+        .replace(/\r?\n/g,'<br>');
+      return `<div class="mono">${linked}</div>`;
+    }
+    if (field?.type === 'checkbox') return `<span>${value ? 'Oui' : 'Non'}</span>`;
 
-  // ➕ NEW: afficher chaque item d’un champ répétable sur sa propre ligne
-  if (Array.isArray(value)) {
-    if (!value.length) return '<span>—</span>';
-    const items = value.map(v => `<div>${linkifyHTML(String(v ?? ''))}</div>`).join('');
-    return items;
-  }
+    // ➕ afficher chaque item d’un champ répétable sur sa propre ligne
+    if (Array.isArray(value)) {
+      if (!value.length) return '<span>—</span>';
+      const items = value.map(v => `<div>${linkifyHTML(String(v ?? ''))}</div>`).join('');
+      return items;
+    }
 
-  return (value ?? '') === '' ? '<span>—</span>' : `<span>${linkifyHTML(String(value))}</span>`;
-};
-
+    return (value ?? '') === '' ? '<span>—</span>' : `<span>${linkifyHTML(String(value))}</span>`;
+  };
 
   // Rend TOUTES les sections fournies (tableau de sections)
   const renderSectionsTable = (TPL_SECTIONS) => {
@@ -6629,26 +6690,31 @@ const renderCell = (field, value) => {
         return;
       }
 
-      // section non répétable
+      // ---- section non répétable (➡ lire dans ROW namespacée)
+      const key = App?.model?.sectionKeyOf ? App.model.sectionKeyOf(section, sidx) : `section-${sidx+1}`;
+      const ROW = (project?.data && project.data[key]) ? project.data[key] : {};
+
       (section.fields || []).forEach(entry => {
         if (entry && entry.group && Array.isArray(entry.fields)) {
           const g = entry.group;
           if (g.repeatable) {
             const KEY = `__grp__${g.name}`;
-            const arr = Array.isArray(project?.data?.[KEY]) ? project.data[KEY] : [];
+            const arr = Array.isArray(ROW?.[KEY]) ? ROW[KEY] : [];
             if (arr.length === 0) {
               table += `<tr><th>${htmlEscape(g.label || g.name)}</th><td>—</td></tr>`;
             } else {
               arr.forEach((obj, i) => renderFieldsFlat(obj, entry.fields, `${g.label || g.name} (${i+1})`));
             }
           } else {
-            renderFieldsFlat(project?.data || {}, entry.fields, g.label || g.name);
+            renderFieldsFlat(ROW, entry.fields, g.label || g.name);
           }
           return;
         }
 
         const label = entry?.label || entry?.name || '';
-        const val = entry.type==='date' ? getDateDisplayFromRawContainer(project, entry.name) : ((project?.data || {})[entry.name] ?? '');
+        const val = entry.type==='date'
+          ? getDateDisplayFromRawContainer(ROW, entry.name)
+          : (ROW?.[entry.name] ?? '');
         table += `<tr><th>${htmlEscape(label)}</th><td>${renderCell(entry, val)}</td></tr>`;
       });
 
@@ -6813,7 +6879,7 @@ const renderCell = (field, value) => {
 
 
   // ---------- ODT (OpenDocument Text) ----------
-function buildODTContent(project) {
+  function buildODTContent(project) {
   const title = project?.title || 'sans-titre';
   const date  = project?.date  || todayISO();
 
@@ -6923,7 +6989,10 @@ function buildODTContent(project) {
         return;
       }
 
-      // section non répétable (mono)
+      // ---- section non répétable (mono) ➜ lire dans ROW namespacée
+      const sectionKey = App?.model?.sectionKeyOf ? App.model.sectionKeyOf(section, idx) : `section-${idx+1}`;
+      const ROW = (project?.data && project.data[sectionKey]) ? project.data[sectionKey] : {};
+
       body += `<table:table table:style-name="KVTable">`;
       (section.fields || []).forEach(field => {
         if (field && field.group && Array.isArray(field.fields)) {
@@ -6931,7 +7000,7 @@ function buildODTContent(project) {
           let block = '';
           if (g.repeatable) {
             const KEY = `__grp__${g.name}`;
-            const arr = Array.isArray((project?.data||{})[KEY]) ? project.data[KEY] : [];
+            const arr = Array.isArray(ROW?.[KEY]) ? ROW[KEY] : [];
             if (arr.length === 0) {
               block = `<text:p text:style-name="Body">—</text:p>`;
             } else {
@@ -6953,8 +7022,8 @@ function buildODTContent(project) {
           // groupe simple
           (field.fields||[]).forEach(sf=>{
             const raw = sf.type==='date'
-              ? getDateDisplayFromRawContainer(project, sf.name)
-              : (project?.data||{})[sf.name];
+              ? getDateDisplayFromRawContainer(ROW, sf.name)
+              : ROW?.[sf.name];
             body += kvRow(sf?.label || sf?.name, valueToXML(sf, raw));
           });
           return;
@@ -6962,8 +7031,8 @@ function buildODTContent(project) {
 
         const label = field?.label || field?.name || '';
         const raw   = (field.type==='date')
-          ? getDateDisplayFromRawContainer(project, field.name)
-          : (project?.data||{})[field?.name];
+          ? getDateDisplayFromRawContainer(ROW, field.name)
+          : ROW?.[field?.name];
         body += kvRow(label, valueToXML(field, raw));
       });
       body += `</table:table><text:p text:style-name="Body"/>`;
@@ -7101,7 +7170,6 @@ function exportODT(){
   URL.revokeObjectURL(a.href);
   a.remove();
 }
-
 
   // ---------- EXPORT ZIP HTML (aperçu autonome + JSON) ----------
   function buildPreviewHTMLStandalone(project) {
