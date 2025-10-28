@@ -1191,8 +1191,68 @@ body.preview-open #progressInfo { display: none !important; }
 [data-theme="dark"] .proc-panel .proc-body .section > .kv > .kv {
   border-bottom-color: rgba(255,255,255,0.08);
 }
-</style>
 
+/* ==========================================================================
+   Séparateurs horizontaux entre toutes les questions d'une section
+   ========================================================================== */
+
+/* A) Questions standard (.kv > .kv)
+   B) Questions sous forme label + div (ex: repeatable) */
+.proc-panel .proc-body .section > .kv > .kv,
+.proc-panel .proc-body .section > .kv > label + div {
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+}
+
+/* Pas de ligne pour la dernière question */
+.proc-panel .proc-body .section > .kv > .kv:last-child,
+.proc-panel .proc-body .section > .kv > label + div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+/* Label + div occupent toute la largeur pour que la ligne soit complète */
+.proc-panel .proc-body .section > .kv > label,
+.proc-panel .proc-body .section > .kv > label + div {
+  flex: 0 0 100%;
+}
+
+
+
+/* ==========================================================================
+   Colonne gauche : min-height = hauteur écran, pas de scroll interne
+   ========================================================================== */
+
+.card.col-left {
+  min-height: 100dvh !important;     /* min hauteur = viewport */
+  height: auto !important;           /* grandit si plus de projets */
+  overflow: visible !important;      /* pas de scrollbar interne */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Fallback anciens navigateurs */
+@supports not (min-height: 100dvh) {
+  .card.col-left {
+    min-height: 100vh !important;
+  }
+}
+
+/* Liste de projets : aucune limite de hauteur ni scroll interne */
+.card.col-left .list,
+.card.col-left #projectList {
+  max-height: none !important;
+  overflow: visible !important;
+  flex-grow: 1;
+}
+
+/* Sécurité si un parent impose un overflow */
+#leftPane {
+  overflow: visible !important;
+}
+</style>
 
 </head>
 
