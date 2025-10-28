@@ -2435,6 +2435,176 @@ function validateTemplate(tpl){
   return { valid:false, reason:'racine ni "sections[]" ni "processes[]"' };
 }
 
+// ===== AUTO-FIX des collisions de clés entre sections NON répétables =====
+function autoFixTemplateCollisions(inputTpl){
+  // deep clone pour éviter de toucher au JSON d'origine
+  const tpl = (typeof structuredClone==='function') ? structuredClone(inputTpl) : deepClone(inputTpl);
+
+  // util: rend "base", "base_2", "base_3", ... qui n’existe pas encore
+  const nextFree = (base, taken) => {
+    let b = String(base || '').trim();
+    if (!b) b = 'field';
+    if (!taken.has(b)) return b;
+    let i = 2;
+    while (taken.has(`${b}_${i}`)) i++;
+    return `${b}_${i}`;
+  };
+
+  // renomme un champ simple OU un groupe (repeatable=false) dans une section
+  const renameEntry = (section, entry, newName) => {
+    if (entry && entry.group && Array.isArray(entry.fields)) {
+      // groupe
+      entry.group.name = newName;
+    } else if (entry) {
+      // champ simple / repeatable
+      entry.name = newName;
+    }
+  };
+
+  // fabrique l’index des clés "ROW" pour une section non répétable
+  const rowKeysOf = (section) => collectRowKeysForNonRepeatableSection(section);
+
+  const applyOnSections = (sections, procLabel = '') => {
+    const globalRowKeys = new Set(); // clés déjà occupées (entre sections non répétables)
+    const changes = [];
+
+    sections.forEach((section, sidx) => {
+      if (section?.repeatable) return;
+
+      // on garde un snapshot de ce qui sera écrit
+      const rowKeys = rowKeysOf(section);
+      const localTaken = new Set(rowKeys); // pour calculer les nouveaux noms dans cette section
+
+      // Passe 1: éviter les noms réservés "__grp__" dans les champs simples
+      (section.fields || []).forEach((e) => {
+        if (!e) return;
+        if (e.group && Array.isArray(e.fields)) {
+          // si groupe non répétable: ses sous-champs sont des clés directes,
+          // ils sont déjà pris en compte via rowKeysOf()
+          if (!e.group.repeatable && /^__grp__/.test(e.group.name)) {
+            const old = e.group.name;
+            const base = old.replace(/^__grp__+/, 'grp_');
+            const nn = nextFree(base, localTaken);
+            e.group.name = nn;
+            localTaken.add(`__grp__${nn}`); // la clé ROW de conteneur n’est créée que si repeatable,
+            // mais on garde la cohérence si jamais le groupe devient repeatable plus tard
+            changes.push({ kind:'group', from: old, to: nn, section: section.title, proc: procLabel });
+          }
+        } else if (e && isReservedFieldName(e.name)) {
+          const old = e.name;
+          const base = old.replace(/^__grp__+/, 'fld_');
+          const nn = nextFree(base, localTaken);
+          e.name = nn;
+          localTaken.add(nn);
+          changes.push({ kind:'field', from: old, to: nn, section: section.title, proc: procLabel });
+        }
+      });
+
+      // Recalcule après corrections "réservés"
+      let updatedRowKeys = rowKeysOf(section);
+
+      // Passe 2: collisions locales (même section)
+      const seenLocal = new Set();
+      (section.fields || []).forEach((entry) => {
+        if (!entry) return;
+        if (entry.group && Array.isArray(entry.fields)) {
+          const g = entry.group;
+          if (g.repeatable) {
+            const GKEY = `__grp__${g.name}`;
+            if (seenLocal.has(GKEY)) {
+              const old = g.name;
+              const nn = nextFree(`${g.name}`, new Set(
+                [...updatedRowKeys].map(k=>String(k).replace(/^__grp__/, '')) // éviter collision de conteneur
+              ));
+              renameEntry(section, entry, nn);
+              changes.push({ kind:'group', from: old, to: nn, section: section.title, proc: procLabel });
+            }
+          } else {
+            // sous-champs déjà couverts par updatedRowKeys
+          }
+        } else {
+          const k = entry.name;
+          if (seenLocal.has(k)) {
+            const old = k;
+            const nn  = nextFree(k, updatedRowKeys);
+            renameEntry(section, entry, nn);
+            changes.push({ kind:'field', from: old, to: nn, section: section.title, proc: procLabel });
+          }
+        }
+        // marquer toutes les clés "ROW" courantes
+        const now = rowKeysOf(section);
+        updatedRowKeys = now;
+        now.forEach(k => seenLocal.add(k));
+      });
+
+      // Passe 3: collisions globales (entre sections non répétables)
+      const finalRowKeys = rowKeysOf(section);
+      finalRowKeys.forEach((k) => {
+        if (String(k).startsWith('__DUP_GRP__')) return; // déjà traité via renommage ci-dessus
+        if (!globalRowKeys.has(k)) return;
+        // il y a collision globale -> renommer le champ/groupe source dans cette section
+        // On retrouve l'entrée à l’origine de "k"
+        (section.fields || []).forEach((entry) => {
+          if (!entry) return;
+          if (entry.group && Array.isArray(entry.fields)) {
+            const g = entry.group;
+            if (g.repeatable) {
+              const GKEY = `__grp__${g.name}`;
+              if (GKEY === k) {
+                const old = g.name;
+                const nn = nextFree(`${g.name}`, new Set([...globalRowKeys].map(x => String(x).replace(/^__grp__/, ''))));
+                renameEntry(section, entry, nn);
+                changes.push({ kind:'group', from: old, to: nn, section: section.title, proc: procLabel });
+              }
+            } else {
+              // sous-champs: si conflit, c’est le sous-champ qui portait la clé
+              for (const sf of entry.fields) {
+                if (sf && sf.name === k) {
+                  const old = sf.name;
+                  const nn  = nextFree(sf.name, new Set(globalRowKeys));
+                  sf.name = nn;
+                  changes.push({ kind:'field', from: old, to: nn, section: section.title, proc: procLabel });
+                }
+              }
+            }
+          } else if (entry && entry.name === k) {
+            const old = entry.name;
+            const nn  = nextFree(entry.name, new Set(globalRowKeys));
+            entry.name = nn;
+            changes.push({ kind:'field', from: old, to: nn, section: section.title, proc: procLabel });
+          }
+        });
+      });
+
+      // mettre à jour le set global (avec les clés finales de la section)
+      rowKeysOf(section).forEach(k => {
+        if (!String(k).startsWith('__DUP_GRP__')) globalRowKeys.add(k);
+      });
+    });
+
+    return changes;
+  };
+
+  const changesAll = [];
+
+  // 1) format historique: sections[]
+  if (Array.isArray(tpl) && tpl.every(s => s && typeof s==='object' && Array.isArray(s.fields))) {
+    changesAll.push(...applyOnSections(tpl, 'mono'));
+    return { fixed: tpl, changes: changesAll };
+  }
+
+  // 2) format processes[]
+  if (Array.isArray(tpl) && tpl.every(p => p && typeof p==='object' && Array.isArray(p.sections))) {
+    tpl.forEach((proc, idx) => {
+      changesAll.push(...applyOnSections(proc.sections, proc.name || `proc ${idx+1}`));
+    });
+    return { fixed: tpl, changes: changesAll };
+  }
+
+  // autre forme: on renvoie tel quel
+  return { fixed: tpl, changes: changesAll };
+}
+
 function setTemplate(newTemplate){
   const ok = validateTemplate(newTemplate);
   if (!ok.valid) throw new Error('Processus invalide : ' + ok.reason);
@@ -8408,83 +8578,112 @@ App.idle = (function () {
 
   /* ===================== attachTemplateLoader ===================== */
   function attachTemplateLoader(){
-    const fileInput = App.dom.getById('templateFile');
-    const pickBtn   = App.dom.getById('pickTemplateBtn');
-    const applyBtn  = App.dom.getById('applyTemplateBtn');
-    let stagedTemplate = null;
+  const fileInput = App.dom.getById('templateFile');
+  const pickBtn   = App.dom.getById('pickTemplateBtn');
+  const applyBtn  = App.dom.getById('applyTemplateBtn');
+  let stagedTemplate = null;
 
-    pickBtn?.addEventListener('click', ()=> fileInput?.click());
+  // petit wrapper: tente d'utiliser App.model.autoFixTemplateCollisions, sinon no-op
+  const runAutoFix = (tpl) => {
+    try {
+      const fixer = App?.model?.autoFixTemplateCollisions || (typeof autoFixTemplateCollisions === 'function' ? autoFixTemplateCollisions : null);
+      if (!fixer) return { fixed: tpl, changes: [] };
+      const out = fixer(tpl);
+      return { fixed: out?.fixed ?? tpl, changes: out?.changes ?? [] };
+    } catch (_e) {
+      // si l’auto-fix plante, on continue avec l’original
+      return { fixed: tpl, changes: [] };
+    }
+  };
 
-    App.dom.on(fileInput, 'change', async ()=>{
-      stagedTemplate = null;
-      if (applyBtn) applyBtn.disabled = true;
+  pickBtn?.addEventListener('click', ()=> fileInput?.click());
 
-      const f = fileInput.files?.[0];
-      if (!f) return;
+  App.dom.on(fileInput, 'change', async ()=>{
+    stagedTemplate = null;
+    if (applyBtn) applyBtn.disabled = true;
 
-      let text = '';
-      try { text = await f.text(); }
-      catch (e) { showJsonErrorPopup('Erreur de lecture du fichier', e?.message || String(e)); return; }
+    const f = fileInput.files?.[0];
+    if (!f) return;
 
-      let json;
-      try { json = JSON.parse(text); }
-      catch (err) {
-        const looksLikeJsLiteral = /[\r\n\s{[],\s]*[A-Za-z_][A-Za-z0-9_]*\s*:/.test(text);
-        let msg = "Le fichier n'est pas un JSON valide.\n\n" +
-                  "Assurez-vous que le contenu respecte la syntaxe JSON :\n" +
-                  "• Toutes les clés et chaînes entre guillemets doubles\n" +
-                  "• Pas de commentaires ou de virgules finales\n";
-        if (looksLikeJsLiteral)
-          msg += "\n💡 Il semble que votre fichier soit un littéral JavaScript. Essayez de mettre des guillemets sur les clés.";
-        msg += "\n\nDétail technique : " + (err?.message || String(err));
-        showJsonErrorPopup('JSON invalide', msg);
-        return;
-      }
+    let text = '';
+    try { text = await f.text(); }
+    catch (e) {
+      showJsonErrorPopup('Erreur de lecture du fichier', e?.message || String(e));
+      return;
+    }
 
-const ok = App?.model?.validateTemplate?.(json) || { valid:false, reason:'validation indisponible' };
-if (!ok.valid) {
-  const msg = `Modèle invalide : ${ok.reason || 'format inattendu'}.\n` +
-              `Formats acceptés :\n` +
-              `• [mono] tableau de sections: [{ title, fields:[...] }]\n` +
-              `• [multi] tableau de processus: [{ name, sections:[{ title, fields:[...] }]}]`;
-  showJsonErrorPopup('Modèle invalide', msg);
-  return;
-}
+    let json;
+    try { json = JSON.parse(text); }
+    catch (err) {
+      const looksLikeJsLiteral = /[\r\n\s{[],\s]*[A-Za-z_][A-Za-z0-9_]*\s*:/.test(text);
+      let msg = "Le fichier n'est pas un JSON valide.\n\n" +
+                "Assurez-vous que le contenu respecte la syntaxe JSON :\n" +
+                "• Toutes les clés et chaînes entre guillemets doubles\n" +
+                "• Pas de commentaires ou de virgules finales\n";
+      if (looksLikeJsLiteral)
+        msg += "\n💡 Il semble que votre fichier soit un littéral JavaScript. Essayez de mettre des guillemets sur les clés.";
+      msg += "\n\nDétail technique : " + (err?.message || String(err));
+      showJsonErrorPopup('JSON invalide', msg);
+      return;
+    }
 
-      stagedTemplate = json;
-      if (applyBtn) applyBtn.disabled = false;
+    // --- (C) MODE PERMISSIF : AUTO-FIX AVANT VALIDATION ---
+    const { fixed: fixedTemplate, changes } = runAutoFix(json);
+
+    // validation sur le template corrigé
+    const ok = App?.model?.validateTemplate?.(fixedTemplate) || { valid:false, reason:'validation indisponible' };
+    if (!ok.valid) {
+      const msg = `Modèle invalide : ${ok.reason || 'format inattendu'}.\n` +
+                  `Formats acceptés :\n` +
+                  `• [mono] tableau de sections: [{ title, fields:[...] }]\n` +
+                  `• [multi] tableau de processus: [{ name, sections:[{ title, fields:[...] }]}]`;
+      showJsonErrorPopup('Modèle invalide', msg);
+      return;
+    }
+
+    // prêt à appliquer
+    stagedTemplate = fixedTemplate;
+    if (applyBtn) applyBtn.disabled = false;
+
+    if (changes?.length) {
+      const preview = changes.slice(0, 5).map(c =>
+        `• ${c.kind==='group'?'groupe':'champ'} “${c.from}” → “${c.to}” [${c.section}${c.proc?`, ${c.proc}`:''}]`
+      ).join('\n');
+      const more = changes.length > 5 ? `\n… et ${changes.length-5} autres.` : '';
+      App?.uiList?.showToast?.(`✅ Processus chargé avec ${changes.length} renommage(s) auto.`, 5000, 'success');
+      console.info('[Auto-fix processus] Détails des renommages:\n' + preview + more);
+    } else {
       App?.uiList?.showToast?.(`✅ Processus prêt : ${f.name}. Cliquez sur "Charger le processus" pour appliquer.`, 4000, 'success');
-    });
+    }
+  });
 
-    App.dom.on(applyBtn, 'click', ()=>{
-      if (!stagedTemplate) {
-        showJsonErrorPopup('Aucun processus sélectionné', "Veuillez d'abord choisir un fichier valide.");
-        return;
-      }
-      try{
-        App.model.setTemplate(stagedTemplate);
-        if (applyBtn) applyBtn.disabled = true;
-        if (fileInput) fileInput.value = '';
-        stagedTemplate = null;
-      }catch(e){
-        showJsonErrorPopup('Échec du chargement du processus', e?.message || String(e));
-      }
-    });
+  App.dom.on(applyBtn, 'click', ()=>{
+    if (!stagedTemplate) {
+      showJsonErrorPopup('Aucun processus sélectionné', "Veuillez d'abord choisir un fichier valide.");
+      return;
+    }
+    try{
+      App.model.setTemplate(stagedTemplate);
+      if (applyBtn) applyBtn.disabled = true;
+      if (fileInput) fileInput.value = '';
+      stagedTemplate = null;
+    }catch(e){
+      showJsonErrorPopup('Échec du chargement du processus', e?.message || String(e));
+    }
+  });
 
-    const resetBtn  = App.dom.getById('resetTemplateBtn');
-    App.dom.on(resetBtn, 'click', ()=>{
-      if (!(App?.helpers?.confirm?.('Réinitialiser le processus par défaut ?') ?? confirm('Réinitialiser le processus par défaut ?'))) return;
-        // handler resetTemplateBtn
-        (async () => {
-          try { await App.storage?.del?.('ui','customTemplate'); } catch {}
-          try { App.kv.remove('customTemplateJSON'); } catch {}
-          try { localStorage.removeItem('customTemplateJSON'); } catch {}
-          App.model.setTemplate(App.model.DEFAULT_TEMPLATE.slice());
-          App?.uiList?.showToast?.('Processus réinitialisé.', 2000, 'success');
-        })();
-
-    });
-  }
+  const resetBtn  = App.dom.getById('resetTemplateBtn');
+  App.dom.on(resetBtn, 'click', ()=>{
+    if (!(App?.helpers?.confirm?.('Réinitialiser le processus par défaut ?') ?? confirm('Réinitialiser le processus par défaut ?'))) return;
+    (async () => {
+      try { await App.storage?.del?.('ui','customTemplate'); } catch {}
+      try { App.kv.remove('customTemplateJSON'); } catch {}
+      try { localStorage.removeItem('customTemplateJSON'); } catch {}
+      App.model.setTemplate(App.model.DEFAULT_TEMPLATE.slice());
+      App?.uiList?.showToast?.('Processus réinitialisé.', 2000, 'success');
+    })();
+  });
+}
 
   /* ===================== Helpers exposés ===================== */
   function nextAvailableTitle(desired){
